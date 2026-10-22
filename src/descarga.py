@@ -15,12 +15,13 @@ class ErrorDescarga(Exception):
     """No se pudo bajar el archivo o lo que llegó no es el dataset esperado."""
 
 
-def descargar_precios(destino, url=URL_PRECIOS_VIGENTES, cliente=requests, timeout=60):
+def descargar_precios(destino, url=URL_PRECIOS_VIGENTES, cliente=requests, timeout=(10, 60)):
     """Baja el CSV a `destino` y devuelve cuántos registros trae.
 
     Primero se guarda en un archivo temporal y se controla que tenga las
     columnas esperadas; recién ahí reemplaza al anterior, así una descarga
-    cortada o una página de error no pisan datos buenos.
+    cortada o una página de error no pisan datos buenos. El timeout es
+    (conexión, lectura): si el servidor ni contesta, se abandona rápido.
     """
     destino = Path(destino)
     destino.parent.mkdir(parents=True, exist_ok=True)

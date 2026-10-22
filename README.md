@@ -380,6 +380,8 @@ alguien que está manejando.
 - **Un solo destino.** No contempla recorridos con varias paradas.
 - **Coordenadas**: algunas estaciones tienen coordenadas que no
   corresponden a su dirección y no siempre se detectan.
+- **La web publicada no tiene precios del día**: el servidor oficial no
+  responde desde Vercel (ver [Deploy](#deploy-en-vercel)).
 - **Servicios públicos de OSRM y Nominatim**: son gratuitos y con uso
   limitado; para mucho tráfico habría que tener servidores propios.
 
@@ -401,10 +403,22 @@ no desviarse.
 
 ## Deploy en Vercel
 
-El repositorio ya está preparado: `api/index.py` expone la app de Flask y
-`vercel.json` manda todas las rutas ahí. En Vercel no se puede escribir en
-el proyecto, así que la app baja los precios a la carpeta temporal y los
-renueva cada hora.
+Publicada en https://tp2-bonadeo.vercel.app.
 
-1. Importar el repositorio en Vercel (framework: Other).
-2. Deploy. No hace falta definir variables de entorno.
+`api/index.py` expone la app de Flask; Vercel la detecta y le pasa todas
+las rutas. `vercel.json` la corre en San Pablo (`gru1`), la región más
+cercana a Rosario, con hasta 30 segundos por pedido. No hace falta definir
+variables de entorno:
+
+```
+vercel deploy --prod
+```
+
+En Vercel no se puede escribir en el proyecto, así que la app intenta bajar
+los precios a la carpeta temporal y renovarlos cada hora. **Pero el
+servidor de la Secretaría de Energía (`datos.energia.gob.ar`) no acepta
+conexiones desde Vercel**, ni desde Estados Unidos ni desde San Pablo; desde
+una conexión argentina responde bien. Por eso la versión publicada usa la
+muestra real versionada y lo avisa en la página. Para tener precios del
+día hay que correr la app desde Argentina (consola o
+`flask --app src.web run` con `NAFTEANDO_DESCARGAR=1`).
