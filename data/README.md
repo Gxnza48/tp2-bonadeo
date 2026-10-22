@@ -88,7 +88,8 @@ los problemas que la limpieza tiene que resolver:
 | Producto escrito distinto (minúsculas y sin tilde) | 9004, súper |
 | Vigencia de más de un año | 9006, GNC |
 
-La descarga completa va en `data/raw/`, que no se versiona.
+La descarga completa se hace con `python -m src.main actualizar` y queda en
+`data/raw/precios_vigentes.csv`, que no se versiona.
 
 ## Ruteo: OSRM
 

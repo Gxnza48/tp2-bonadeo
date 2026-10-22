@@ -160,6 +160,7 @@ function mostrarRecomendacion(rec) {
   }
   if (rec.aviso) html += `<p class="aviso">${escapar(rec.aviso)}.</p>`;
   else if (rec.estimado) html += '<p class="aviso">Distancias estimadas en línea recta.</p>';
+  if (rec.aviso_datos) html += `<p class="aviso">${escapar(rec.aviso_datos)}.</p>`;
 
   resultado.innerHTML = html;
   resultado.hidden = false;
@@ -181,7 +182,7 @@ formulario.addEventListener("submit", async (evento) => {
   try {
     const respuesta = await fetch(`/api/recomendar?${parametros}`);
     const datos = await respuesta.json();
-    if (!respuesta.ok) mostrarError(datos.error || "No se pudo calcular.");
+    if (!respuesta.ok) mostrarError([datos.error || "No se pudo calcular.", datos.aviso_datos].filter(Boolean).join(". "));
     else mostrarRecomendacion(datos);
   } catch (e) {
     mostrarError("No hay conexión con el servidor.");

@@ -5,22 +5,31 @@ parámetros del formulario, llama al recomendador y devuelve JSON.
 
 Para correrla:
     flask --app src.web run
+
+De dónde salen los precios:
+- NAFTEANDO_DATOS, si está definida: ese archivo, tal cual.
+- En Vercel (o con NAFTEANDO_DESCARGAR=1): se baja el archivo oficial a la
+  carpeta temporal y se renueva cada hora.
+- Si no: data/raw/precios_vigentes.csv si ya se corrió `actualizar`, o la
+  muestra real versionada.
 """
 
 import os
+import tempfile
 from datetime import datetime
 from pathlib import Path
 
 from flask import Flask, jsonify, render_template, request
 
-from src.config import CIUDAD_POR_DEFECTO, DIR_MUESTRA
+from src.config import ARCHIVO_VIGENTES, CIUDAD_POR_DEFECTO, DIR_MUESTRA, MINUTOS_ENTRE_DESCARGAS
+from src.descarga import ErrorDescarga, antiguedad_minutos, descargar_precios
 from src.fuentes import ErrorFuente, fuente_para
 from src.modelos import HORARIOS, PRODUCTOS, Recorrido
 from src.pipeline import FORMATO_FECHA, ErrorEsquema, procesar
 from src.recomendador import SinEstaciones, franja_para, recomendar
 from src.ruteo import ErrorRuteo, RuteadorOSRM, ubicar
 
-RUTA_DATOS_POR_DEFECTO = DIR_MUESTRA / "precios_rosario_real.csv"
+MUESTRA = DIR_MUESTRA / "precios_rosario_real.csv"
 
 ETIQUETAS_PRODUCTO = {
     "super": "Nafta súper",
@@ -36,18 +45,41 @@ class ErrorPedido(Exception):
 
 
 class Precios:
-    """Carga y procesa el archivo una vez, y lo vuelve a leer si cambia."""
+    """Carga y procesa el archivo una vez, y lo vuelve a leer si cambia.
 
-    def __init__(self, ruta, localidad, provincia):
+    Con `descargar`, antes de leer baja el archivo oficial si no está o si
+    tiene más de MINUTOS_ENTRE_DESCARGAS. Si la descarga falla sigue con el
+    archivo que haya, o con la muestra, y lo avisa.
+    """
+
+    def __init__(self, ruta, localidad, provincia, descargar=False, descargador=descargar_precios):
         self.ruta = Path(ruta)
         self.localidad = localidad
         self.provincia = provincia
+        self.descargar = descargar
+        self.descargador = descargador
+        self.aviso = None
         self._cache = None
 
+    def archivo(self):
+        if self.descargar:
+            antiguedad = antiguedad_minutos(self.ruta)
+            if antiguedad is None or antiguedad > MINUTOS_ENTRE_DESCARGAS:
+                try:
+                    self.descargador(self.ruta)
+                    self.aviso = None
+                except ErrorDescarga as error:
+                    self.aviso = f"No se pudieron actualizar los precios ({error})"
+        if self.ruta.exists():
+            return self.ruta
+        self.aviso = (self.aviso or "No hay precios descargados") + "; se usa la muestra de octubre de 2026"
+        return MUESTRA
+
     def vigentes(self, fecha_consulta):
-        firma = (self.ruta.stat().st_mtime, fecha_consulta.date(), fecha_consulta.hour)
+        ruta = self.archivo()
+        firma = (ruta, ruta.stat().st_mtime, fecha_consulta.date(), fecha_consulta.hour)
         if self._cache is None or self._cache[0] != firma:
-            registros = fuente_para(self.ruta).cargar(self.ruta)
+            registros = fuente_para(ruta).cargar(ruta)
             vigentes, _ = procesar(registros, fecha_consulta, self.localidad, self.provincia)
             self._cache = (firma, vigentes)
         return self._cache[1]
@@ -99,7 +131,17 @@ def recomendacion_a_dict(rec):
     }
 
 
-def crear_app(ruta_datos=None, fecha_consulta=None, ruteador_factory=RuteadorOSRM, ubicador=ubicar):
+def elegir_precios(localidad, provincia):
+    if os.environ.get("NAFTEANDO_DATOS"):
+        return Precios(os.environ["NAFTEANDO_DATOS"], localidad, provincia)
+    if os.environ.get("VERCEL") or os.environ.get("NAFTEANDO_DESCARGAR") == "1":
+        # En Vercel solo se puede escribir en la carpeta temporal.
+        ruta = Path(tempfile.gettempdir()) / "precios_vigentes.csv"
+        return Precios(ruta, localidad, provincia, descargar=True)
+    return Precios(ARCHIVO_VIGENTES if ARCHIVO_VIGENTES.exists() else MUESTRA, localidad, provincia)
+
+
+def crear_app(precios=None, fecha_consulta=None, ruteador_factory=RuteadorOSRM, ubicador=ubicar):
     """Arma la app. Los parámetros permiten probarla sin internet.
 
     fecha_consulta fija el "ahora" (sirve para mostrar la muestra de
@@ -107,9 +149,7 @@ def crear_app(ruta_datos=None, fecha_consulta=None, ruteador_factory=RuteadorOSR
     """
     app = Flask(__name__)
     localidad, provincia = CIUDAD_POR_DEFECTO
-    precios = Precios(
-        ruta_datos or os.environ.get("NAFTEANDO_DATOS", RUTA_DATOS_POR_DEFECTO), localidad, provincia
-    )
+    precios = precios or elegir_precios(localidad, provincia)
     fecha_fija = fecha_consulta
     if fecha_fija is None and os.environ.get("NAFTEANDO_FECHA_CONSULTA"):
         fecha_fija = datetime.strptime(os.environ["NAFTEANDO_FECHA_CONSULTA"], FORMATO_FECHA)
@@ -131,6 +171,7 @@ def crear_app(ruta_datos=None, fecha_consulta=None, ruteador_factory=RuteadorOSR
         vigentes = [p for p in precios.vigentes(momento) if p.producto == producto and p.horario == franja]
         return jsonify(
             franja=franja,
+            aviso_datos=precios.aviso,
             estaciones=[{
                 "nombre": p.estacion.nombre,
                 "direccion": p.estacion.direccion,
@@ -165,10 +206,10 @@ def crear_app(ruta_datos=None, fecha_consulta=None, ruteador_factory=RuteadorOSR
         except (ErrorPedido, ErrorRuteo, ValueError) as error:
             return jsonify(error=str(error)), 400
         except SinEstaciones as error:
-            return jsonify(error=str(error)), 404
+            return jsonify(error=str(error), aviso_datos=precios.aviso), 404
         except (ErrorFuente, ErrorEsquema) as error:
             return jsonify(error=f"No se pudieron leer los precios: {error}"), 500
-        return jsonify(recomendacion_a_dict(rec))
+        return jsonify(recomendacion_a_dict(rec) | {"aviso_datos": precios.aviso})
 
     return app
 

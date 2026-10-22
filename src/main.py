@@ -5,6 +5,7 @@ Uso:
     python -m src.main limpiar data/muestra/precios_rosario_real.csv
     python -m src.main vigentes data/muestra/precios_rosario_real.csv --producto super
     python -m src.main recomendar data/muestra/precios_rosario_real.csv --desde "Oroño 1500" --hasta "Pellegrini 3000"
+    python -m src.main actualizar
 """
 
 import argparse
@@ -12,7 +13,8 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-from src.config import CAMPOS_PRECIO, CIUDAD_POR_DEFECTO, DIR_SALIDAS
+from src.config import ARCHIVO_VIGENTES, CAMPOS_PRECIO, CIUDAD_POR_DEFECTO, DIR_SALIDAS
+from src.descarga import ErrorDescarga, descargar_precios
 from src.fuentes import ErrorFuente, fuente_para
 from src.modelos import HORARIOS, PRODUCTOS, Recorrido
 from src.pipeline import (
@@ -277,11 +279,28 @@ def crear_parser():
     p_recomendar.add_argument("--provincia", default=CIUDAD_POR_DEFECTO[1])
     p_recomendar.add_argument("--salida", type=Path, default=DIR_SALIDAS,
                               help="carpeta de salida (outputs/ por defecto)")
+
+    p_actualizar = comandos.add_parser("actualizar", help="descarga el archivo oficial de precios vigentes")
+    p_actualizar.add_argument("--destino", type=Path, default=ARCHIVO_VIGENTES,
+                              help="dónde guardarlo (data/raw/precios_vigentes.csv por defecto)")
     return parser
+
+
+def actualizar(destino):
+    print("Descargando precios vigentes de la Secretaría de Energía...")
+    try:
+        cantidad = descargar_precios(destino)
+    except ErrorDescarga as error:
+        print(f"Error: {error}", file=sys.stderr)
+        return 2
+    print(f"Listo: {cantidad} registros en {destino}")
+    return 0
 
 
 def main(argumentos=None):
     args = crear_parser().parse_args(argumentos)
+    if args.comando == "actualizar":
+        return actualizar(args.destino)
 
     try:
         registros = fuente_para(args.ruta).cargar(args.ruta)

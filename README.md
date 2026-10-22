@@ -41,15 +41,20 @@ ahorro_neto = (precio_referencia − precio_estación) × litros
 Cada producto se compara solo con su mismo producto. Si ninguna estación da
 ahorro neto positivo, la respuesta es **"no te desvíes"**.
 
-## Operaciones previstas
+## Funcionalidades
 
-| Comando | Qué hace | Estado |
-|---|---|---|
-| `inspeccionar` | Resume un CSV o JSON de precios: registros, campos, vacíos y tipos | listo |
-| `limpiar` | Valida y limpia los precios, y guarda las filas rechazadas con su motivo | listo |
-| `vigentes` | Precio vigente de cada estación de la ciudad, del más barato al más caro | listo |
-| `recomendar` | Estaciones ordenadas por ahorro neto para un recorrido | listo |
-| `actualizar` | Descarga el archivo de precios vigentes | pendiente |
+Por consola (`python -m src.main <comando>`):
+
+| Comando | Qué hace |
+|---|---|
+| `actualizar` | Descarga el archivo oficial de precios vigentes a `data/raw/` |
+| `inspeccionar` | Resume un CSV o JSON de precios: registros, campos, vacíos y tipos |
+| `limpiar` | Valida y limpia los precios, y guarda las filas rechazadas con su motivo |
+| `vigentes` | Precio vigente de cada estación de la ciudad, del más barato al más caro |
+| `recomendar` | Estaciones ordenadas por ahorro neto para un recorrido, y el veredicto |
+
+Y una web para el celular con lo mismo que `recomendar`, más el mapa y la
+ubicación del GPS (ver [Web](#web)).
 
 ## Ejemplo de resultado
 
@@ -123,17 +128,21 @@ tp2-bonadeo/
 │   ├── ruteo.py             distancias (OSRM o línea recta) y direcciones
 │   ├── recomendador.py      desvío y ahorro neto
 │   ├── main.py              comandos de consola
+│   ├── descarga.py          descarga del archivo oficial
 │   ├── web.py               web app (Flask): página y API
 │   ├── templates/index.html
 │   └── static/              estilos y JavaScript del mapa
+├── api/index.py             entrada para Vercel
 ├── tests/
 │   ├── fixtures/            archivos rotos para probar errores
 │   ├── test_fuentes.py
 │   ├── test_pipeline.py
 │   ├── test_vigentes.py
 │   ├── test_recomendador.py
-│   └── test_web.py
+│   ├── test_web.py
+│   └── test_descarga.py
 ├── requirements.txt
+├── vercel.json
 └── README.md
 ```
 
@@ -149,6 +158,22 @@ pip install -r requirements.txt
 ```
 
 ## Uso
+
+Para trabajar con los precios del momento, primero:
+
+```
+python -m src.main actualizar
+```
+
+Eso guarda el archivo completo (unos 9 MB, todo el país) en
+`data/raw/precios_vigentes.csv`, que no se versiona. Después se usa como
+cualquier otro archivo, sin `--fecha-consulta`:
+
+```
+python -m src.main recomendar data/raw/precios_vigentes.csv --desde "Oroño 1500" --hasta "Pellegrini 3000"
+```
+
+Con las muestras versionadas, para reproducir los ejemplos de este README:
 
 ```
 python -m src.main inspeccionar data/muestra/precios_muestra.csv
@@ -285,7 +310,11 @@ mismas funciones que la consola y devuelve JSON.
 
 Variables de entorno opcionales:
 
-- `NAFTEANDO_DATOS`: archivo de precios (por defecto, la muestra real).
+- `NAFTEANDO_DATOS`: archivo de precios. Si no se define, la web usa
+  `data/raw/precios_vigentes.csv` si existe, o la muestra real.
+- `NAFTEANDO_DESCARGAR=1`: baja el archivo oficial a la carpeta temporal y
+  lo renueva cada hora (es lo que hace en Vercel). Si la descarga falla,
+  sigue con el último archivo o con la muestra, y lo avisa en la página.
 - `NAFTEANDO_FECHA_CONSULTA`: fija el "ahora", por ejemplo
   `2026-10-22 12:00:00`, para mostrar la muestra cuando sus precios ya
   quedaron viejos.
@@ -313,18 +342,69 @@ costo del desvío se calcula con el precio de la estación a la que se va.
 Las direcciones se buscan con Nominatim dentro de un recuadro alrededor de
 la ciudad.
 
+Todas las estaciones se resuelven con una sola consulta al servicio
+`table` de OSRM (las distancias desde el origen y desde cada estación
+hasta cada estación y el destino), en lugar de una consulta por estación.
+Con 9 estaciones bajó de unos 16 segundos a 3, que es lo que importa para
+alguien que está manejando.
+
+## Interpretación
+
+- El **ahorro neto** es plata en el bolsillo del chofer en esta carga:
+  lo que ahorra en el surtidor menos lo que gasta en llegar. Si es
+  negativo, el desvío cuesta más de lo que ahorra.
+- Cuando no hay una estación de paso, la referencia es la más cercana, y
+  el desvío de las demás se cuenta a partir de ella: la pregunta es "¿vale
+  la pena ir a otra en vez de a la más cercana?".
+- En una ciudad los precios de una misma bandera suelen ser iguales, así
+  que las diferencias aparecen entre banderas (en la muestra, $42 por litro
+  entre PUMA y Shell). Con 30 litros, $42 por litro son $1.260: un desvío
+  de 2 km se paga solo; uno de 9 km, no.
+- Sin `valor_hora` la cuenta solo mira el combustible. Para un chofer que
+  cobra por hora, sumar su tiempo cambia la respuesta en desvíos largos.
+- Si aparece "distancias estimadas en línea recta", los números son
+  aproximados: OSRM no respondió.
+
+## Limitaciones
+
+- **Precios informados por las estaciones.** Si una estación no actualiza,
+  queda afuera (vigencia de más de 60 días), aunque quizás sea la más
+  barata. En Rosario, el 22/10/2026, solo 16 de 95 estaciones tenían
+  precios recientes.
+- **Sin descuentos** por app de la petrolera, tarjetas o clubes de
+  beneficios, que pueden dar vuelta la recomendación.
+- **Sin tránsito real ni espera en la estación.** La duración es la de OSRM
+  sin tránsito.
+- **El costo del desvío usa un consumo fijo** por kilómetro; en ciudad, con
+  frenadas, puede ser mayor.
+- **Un solo destino.** No contempla recorridos con varias paradas.
+- **Coordenadas**: algunas estaciones tienen coordenadas que no
+  corresponden a su dirección y no siempre se detectan.
+- **Servicios públicos de OSRM y Nominatim**: son gratuitos y con uso
+  limitado; para mucho tráfico habría que tener servidores propios.
+
+Más detalle sobre los datos en [data/README.md](data/README.md).
+
 ## Pruebas
 
 ```
 python -m unittest discover -s tests -v
 ```
 
-## Hoja de ruta
+97 pruebas, ninguna necesita internet: OSRM, Nominatim y la descarga se
+reemplazan por clientes falsos. Cubren casos normales, entradas inválidas
+(archivos rotos, CUIT y fechas mal escritos, parámetros sin sentido) y
+propiedades del resultado: leer CSV o JSON da lo mismo, ninguna fila se
+pierde en la limpieza, una estación sobre el recorrido tiene desvío 0, con
+precios iguales gana la más cercana y con ahorro negativo la respuesta es
+no desviarse.
 
-1. Estructura y lectura de CSV y JSON.
-2. Validación y limpieza: CUIT con dígito verificador, fechas, rangos,
-   duplicados, productos normalizados y archivo de rechazos.
-3. Precio vigente por estación y producto, con las clases del dominio.
-4. Cálculo del desvío y del ahorro neto, y comando `recomendar`.
-5. Web app mobile first en Flask con mapa.
-6. Descarga automática de precios y deploy.
+## Deploy en Vercel
+
+El repositorio ya está preparado: `api/index.py` expone la app de Flask y
+`vercel.json` manda todas las rutas ahí. En Vercel no se puede escribir en
+el proyecto, así que la app baja los precios a la carpeta temporal y los
+renueva cada hora.
+
+1. Importar el repositorio en Vercel (framework: Other).
+2. Deploy. No hace falta definir variables de entorno.

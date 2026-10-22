@@ -3,7 +3,7 @@ from datetime import datetime
 
 from src.config import DIR_MUESTRA
 from src.ruteo import ErrorRuteo, RuteadorLineaRecta
-from src.web import crear_app
+from src.web import Precios, crear_app
 
 LUGARES = {
     "Oroño 1500": (-32.95124, -60.65287),
@@ -20,7 +20,7 @@ def ubicador_falso(texto, localidad, provincia):
 class TestWeb(unittest.TestCase):
     def setUp(self):
         app = crear_app(
-            ruta_datos=DIR_MUESTRA / "precios_muestra.csv",
+            precios=Precios(DIR_MUESTRA / "precios_muestra.csv", "ROSARIO", "SANTA FE"),
             fecha_consulta=datetime(2026, 10, 22, 12, 0, 0),
             ruteador_factory=lambda: RuteadorLineaRecta(),
             ubicador=ubicador_falso,

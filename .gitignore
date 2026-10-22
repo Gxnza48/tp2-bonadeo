@@ -16,6 +16,9 @@ data/raw/
 outputs/*
 !outputs/.gitkeep
 
+# Configuración local de Vercel
+.vercel/
+
 # Editores y sistema
 .vscode/
 .idea/
