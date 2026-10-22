@@ -313,8 +313,13 @@ Variables de entorno opcionales:
 - `NAFTEANDO_DATOS`: archivo de precios. Si no se define, la web usa
   `data/raw/precios_vigentes.csv` si existe, o la muestra real.
 - `NAFTEANDO_DESCARGAR=1`: baja el archivo oficial a la carpeta temporal y
-  lo renueva cada hora (es lo que hace en Vercel). Si la descarga falla,
-  sigue con el último archivo o con la muestra, y lo avisa en la página.
+  lo renueva cada hora. Si la descarga falla, sigue con el último archivo o
+  con la muestra, lo avisa en la página y no vuelve a intentar hasta dentro
+  de una hora, para no hacer esperar cada pedido.
+
+Cuando la web usa la muestra real, calcula los precios vigentes al
+22/10/2026 (el día en que se bajó) y lo avisa: si no, pasados 60 días todos
+sus precios quedarían vencidos y no mostraría ninguna estación.
 - `NAFTEANDO_FECHA_CONSULTA`: fija el "ahora", por ejemplo
   `2026-10-22 12:00:00`, para mostrar la muestra cuando sus precios ya
   quedaron viejos.
@@ -414,11 +419,12 @@ variables de entorno:
 vercel deploy --prod
 ```
 
-En Vercel no se puede escribir en el proyecto, así que la app intenta bajar
-los precios a la carpeta temporal y renovarlos cada hora. **Pero el
-servidor de la Secretaría de Energía (`datos.energia.gob.ar`) no acepta
-conexiones desde Vercel**, ni desde Estados Unidos ni desde San Pablo; desde
-una conexión argentina responde bien. Por eso la versión publicada usa la
-muestra real versionada y lo avisa en la página. Para tener precios del
-día hay que correr la app desde Argentina (consola o
-`flask --app src.web run` con `NAFTEANDO_DESCARGAR=1`).
+La idea era que en Vercel la app bajara los precios a la carpeta temporal
+cada hora (`NAFTEANDO_DESCARGAR=1`). **Pero el servidor de la Secretaría de
+Energía (`datos.energia.gob.ar`) no acepta conexiones desde Vercel**: se
+probó desde Estados Unidos y desde San Pablo, y en los dos casos la conexión
+no llega a abrirse; desde una conexión argentina responde bien. Por eso la
+versión publicada usa la muestra real del 22/10/2026 y lo avisa en la
+página. Para tener precios del día hay que correr la app desde Argentina:
+`python -m src.main actualizar` y después la consola o
+`flask --app src.web run`.

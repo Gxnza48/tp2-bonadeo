@@ -3,6 +3,7 @@ import shutil
 import tempfile
 import time
 import unittest
+from datetime import datetime
 from pathlib import Path
 
 import requests
@@ -90,7 +91,32 @@ class TestPreciosDeLaWeb(ConCarpetaTemporal):
 
         precios = self.precios(descargador)
         self.assertEqual(precios.archivo(), MUESTRA)
-        self.assertIn("muestra", precios.aviso)
+        self.assertEqual(
+            precios.aviso,
+            "No se pudieron bajar los precios del día; se muestran los precios del 22/10/2026, no los de hoy",
+        )
+
+    def test_despues_de_una_falla_no_reintenta_en_cada_pedido(self):
+        intentos = []
+
+        def descargador(ruta):
+            intentos.append(ruta)
+            raise ErrorDescarga("sin conexión")
+
+        precios = self.precios(descargador)
+        aviso = None
+        for _ in range(3):
+            precios.archivo()
+            aviso = aviso or precios.aviso
+            self.assertEqual(precios.aviso, aviso)  # el aviso no se va alargando
+        self.assertEqual(len(intentos), 1)
+
+    def test_la_muestra_se_calcula_a_su_fecha(self):
+        # Meses después, los precios de la muestra tendrían más de 60 días;
+        # igual se muestran, calculados al día en que se bajó.
+        precios = Precios(MUESTRA, "ROSARIO", "SANTA FE")
+        self.assertGreater(len(precios.vigentes(datetime(2027, 6, 1, 12, 0, 0))), 0)
+        self.assertIn("22/10/2026", precios.aviso)
 
     def test_si_falla_sigue_con_el_archivo_viejo(self):
         self.destino.write_bytes(CSV_BUENO)
@@ -102,7 +128,7 @@ class TestPreciosDeLaWeb(ConCarpetaTemporal):
 
         precios = self.precios(descargador)
         self.assertEqual(precios.archivo(), self.destino)
-        self.assertIn("No se pudieron actualizar", precios.aviso)
+        self.assertEqual(precios.aviso, "No se pudieron bajar los precios del día")
 
 
 if __name__ == "__main__":

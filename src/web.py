@@ -8,14 +8,17 @@ Para correrla:
 
 De dónde salen los precios:
 - NAFTEANDO_DATOS, si está definida: ese archivo, tal cual.
-- En Vercel (o con NAFTEANDO_DESCARGAR=1): se baja el archivo oficial a la
-  carpeta temporal y se renueva cada hora.
+- Con NAFTEANDO_DESCARGAR=1: se baja el archivo oficial a la carpeta
+  temporal y se renueva cada hora.
 - Si no: data/raw/precios_vigentes.csv si ya se corrió `actualizar`, o la
-  muestra real versionada.
+  muestra real versionada. Es lo que pasa en Vercel, porque el servidor de
+  la Secretaría de Energía no responde desde ahí.
 """
 
+import logging
 import os
 import tempfile
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -30,6 +33,11 @@ from src.recomendador import SinEstaciones, franja_para, recomendar
 from src.ruteo import ErrorRuteo, RuteadorOSRM, ubicar
 
 MUESTRA = DIR_MUESTRA / "precios_rosario_real.csv"
+# La muestra se bajó ese día: sus precios se calculan a esa fecha, para que
+# la web siga mostrando algo cuando ya tengan más de 60 días.
+FECHA_MUESTRA = datetime(2026, 10, 22, 12, 0, 0)
+
+registro = logging.getLogger(__name__)
 
 ETIQUETAS_PRODUCTO = {
     "super": "Nafta súper",
@@ -49,7 +57,8 @@ class Precios:
 
     Con `descargar`, antes de leer baja el archivo oficial si no está o si
     tiene más de MINUTOS_ENTRE_DESCARGAS. Si la descarga falla sigue con el
-    archivo que haya, o con la muestra, y lo avisa.
+    archivo que haya, o con la muestra, y no reintenta hasta que pase ese
+    mismo tiempo (si no, cada pedido esperaría al servidor caído).
     """
 
     def __init__(self, ruta, localidad, provincia, descargar=False, descargador=descargar_precios):
@@ -59,24 +68,40 @@ class Precios:
         self.descargar = descargar
         self.descargador = descargador
         self.aviso = None
+        self._ultima_falla = None
         self._cache = None
 
+    def _toca_descargar(self):
+        if not self.descargar:
+            return False
+        if self._ultima_falla and (time.monotonic() - self._ultima_falla) / 60 < MINUTOS_ENTRE_DESCARGAS:
+            return False
+        antiguedad = antiguedad_minutos(self.ruta)
+        return antiguedad is None or antiguedad > MINUTOS_ENTRE_DESCARGAS
+
     def archivo(self):
-        if self.descargar:
-            antiguedad = antiguedad_minutos(self.ruta)
-            if antiguedad is None or antiguedad > MINUTOS_ENTRE_DESCARGAS:
-                try:
-                    self.descargador(self.ruta)
-                    self.aviso = None
-                except ErrorDescarga as error:
-                    self.aviso = f"No se pudieron actualizar los precios ({error})"
-        if self.ruta.exists():
+        if self._toca_descargar():
+            try:
+                self.descargador(self.ruta)
+                self._ultima_falla = None
+            except ErrorDescarga as error:
+                registro.warning("Falló la descarga de precios: %s", error)
+                self._ultima_falla = time.monotonic()
+
+        falla = "No se pudieron bajar los precios del día" if self._ultima_falla else None
+        if self.ruta.exists() and self.ruta != MUESTRA:
+            self.aviso = falla
             return self.ruta
-        self.aviso = (self.aviso or "No hay precios descargados") + "; se usa la muestra de octubre de 2026"
+        self.aviso = (
+            (falla + "; se" if falla else "Se")
+            + f" muestran los precios del {FECHA_MUESTRA:%d/%m/%Y}, no los de hoy"
+        )
         return MUESTRA
 
     def vigentes(self, fecha_consulta):
         ruta = self.archivo()
+        if ruta == MUESTRA:
+            fecha_consulta = FECHA_MUESTRA
         firma = (ruta, ruta.stat().st_mtime, fecha_consulta.date(), fecha_consulta.hour)
         if self._cache is None or self._cache[0] != firma:
             registros = fuente_para(ruta).cargar(ruta)
@@ -134,8 +159,8 @@ def recomendacion_a_dict(rec):
 def elegir_precios(localidad, provincia):
     if os.environ.get("NAFTEANDO_DATOS"):
         return Precios(os.environ["NAFTEANDO_DATOS"], localidad, provincia)
-    if os.environ.get("VERCEL") or os.environ.get("NAFTEANDO_DESCARGAR") == "1":
-        # En Vercel solo se puede escribir en la carpeta temporal.
+    if os.environ.get("NAFTEANDO_DESCARGAR") == "1":
+        # En Vercel, por ejemplo, solo se puede escribir en la carpeta temporal.
         ruta = Path(tempfile.gettempdir()) / "precios_vigentes.csv"
         return Precios(ruta, localidad, provincia, descargar=True)
     return Precios(ARCHIVO_VIGENTES if ARCHIVO_VIGENTES.exists() else MUESTRA, localidad, provincia)
