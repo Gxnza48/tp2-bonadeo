@@ -34,18 +34,25 @@ def calcular_ahorro(precio_referencia, precio_estacion, litros, consumo_km_por_l
     return ahorro_surtidor, costo_combustible, costo_tiempo
 
 
-def desvio(ruteador, recorrido, ubicacion, directo=None):
-    """Lo que se agrega al recorrido por pasar por la estación.
+def desvios(ruteador, recorrido, ubicaciones):
+    """Lo que se agrega al recorrido por pasar por cada estación.
 
     Con destino: distancia(A -> estación -> B) - distancia(A -> B).
     En modo "cerca mío": ir hasta la estación y volver.
     """
     if recorrido.cerca_mio:
-        return ruteador.ruta(recorrido.origen, ubicacion, recorrido.origen)
-    directo = directo or ruteador.ruta(recorrido.origen, recorrido.destino)
-    extra = ruteador.ruta(recorrido.origen, ubicacion, recorrido.destino) - directo
-    # Por redondeos de la ruta puede dar apenas negativo.
-    return Tramo(max(extra.km, 0), max(extra.minutos, 0), extra.estimado)
+        return ruteador.via(recorrido.origen, ubicaciones, recorrido.origen)
+    directo = ruteador.ruta(recorrido.origen, recorrido.destino)
+    resultado = []
+    for con_parada in ruteador.via(recorrido.origen, ubicaciones, recorrido.destino):
+        extra = con_parada - directo
+        # Por redondeos de la ruta puede dar apenas negativo.
+        resultado.append(Tramo(max(extra.km, 0), max(extra.minutos, 0), extra.estimado))
+    return resultado
+
+
+def desvio(ruteador, recorrido, ubicacion):
+    return desvios(ruteador, recorrido, [ubicacion])[0]
 
 
 def candidatas(vigentes, recorrido, franja, radio_km=RADIO_BUSQUEDA_KM):
@@ -66,19 +73,16 @@ def recomendar(vigentes, recorrido, ruteador, franja, radio_km=RADIO_BUSQUEDA_KM
             f"a menos de {radio_km} km"
         )
 
-    directo = None if recorrido.cerca_mio else ruteador.ruta(recorrido.origen, recorrido.destino)
-    desvios = [
-        (precio, desvio(ruteador, recorrido, (precio.estacion.latitud, precio.estacion.longitud), directo))
-        for precio in precios
-    ]
+    ubicaciones = [(p.estacion.latitud, p.estacion.longitud) for p in precios]
+    por_estacion = list(zip(precios, desvios(ruteador, recorrido, ubicaciones)))
 
     # Referencia: la de menor desvío; si empatan, la más barata, para no
     # exagerar el ahorro de las demás.
-    precio_ref, desvio_ref = min(desvios, key=lambda par: (par[1].km, par[0].precio))
+    precio_ref, desvio_ref = min(por_estacion, key=lambda par: (par[1].km, par[0].precio))
 
     opciones = []
     referencia = None
-    for precio, tramo in desvios:
+    for precio, tramo in por_estacion:
         km = max(tramo.km - desvio_ref.km, 0)
         minutos = max(tramo.minutos - desvio_ref.minutos, 0)
         ahorro, combustible, tiempo = calcular_ahorro(

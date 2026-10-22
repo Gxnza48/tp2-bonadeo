@@ -57,6 +57,10 @@ class Ruteador(ABC):
     def ruta(self, *puntos):
         """Devuelve un Tramo."""
 
+    def via(self, origen, paradas, destino):
+        """El tramo origen -> parada -> destino para cada parada."""
+        return [self.ruta(origen, parada, destino) for parada in paradas]
+
 
 class RuteadorLineaRecta(Ruteador):
     """Estimación sin internet: línea recta corregida por un factor de rodeo."""
@@ -85,19 +89,27 @@ class RuteadorOSRM(Ruteador):
         self.falla = None
 
     def ruta(self, *puntos):
+        return self._con_respaldo(self._ruta, self.respaldo.ruta, *puntos)
+
+    def via(self, origen, paradas, destino):
+        if not paradas:
+            return []
+        return self._con_respaldo(self._tabla, self.respaldo.via, origen, paradas, destino)
+
+    def _con_respaldo(self, consulta, respaldo, *argumentos):
         if self.falla is None:
             try:
-                return self._consultar(puntos)
-            except (requests.RequestException, ValueError, KeyError, IndexError) as error:
+                return consulta(*argumentos)
+            except (requests.RequestException, ValueError, KeyError, IndexError, TypeError) as error:
                 self.falla = f"OSRM no respondió ({error.__class__.__name__})"
-        return self.respaldo.ruta(*puntos)
+        return respaldo(*argumentos)
 
-    def _consultar(self, puntos):
+    def _pedir(self, servicio, puntos, parametros):
         # OSRM recibe longitud,latitud separados por ';'.
         coordenadas = ";".join(f"{lon},{lat}" for lat, lon in puntos)
         respuesta = self.cliente.get(
-            f"{self.url}/route/v1/driving/{coordenadas}",
-            params={"overview": "false"},
+            f"{self.url}/{servicio}/v1/driving/{coordenadas}",
+            params=parametros,
             headers={"User-Agent": USER_AGENT},
             timeout=self.timeout,
         )
@@ -105,8 +117,36 @@ class RuteadorOSRM(Ruteador):
         datos = respuesta.json()
         if datos.get("code") != "Ok":
             raise ValueError(datos.get("message", datos.get("code")))
-        ruta = datos["routes"][0]
+        return datos
+
+    def _ruta(self, *puntos):
+        ruta = self._pedir("route", puntos, {"overview": "false"})["routes"][0]
         return Tramo(ruta["distance"] / 1000, ruta["duration"] / 60)
+
+    def _tabla(self, origen, paradas, destino):
+        """Todas las paradas en una sola consulta al servicio "table".
+
+        Se piden las distancias desde el origen y desde cada parada hasta
+        cada parada y el destino; de esa matriz salen los dos tramos
+        (origen -> parada y parada -> destino) de cada estación.
+        """
+        n = len(paradas)
+        puntos = [origen, destino, *paradas]
+        indices_paradas = [str(i) for i in range(2, n + 2)]
+        datos = self._pedir("table", puntos, {
+            "sources": ";".join(["0", *indices_paradas]),
+            "destinations": ";".join([*indices_paradas, "1"]),
+            "annotations": "distance,duration",
+        })
+        metros, segundos = datos["distances"], datos["durations"]
+        tramos = []
+        for i in range(n):
+            # Fila 0: desde el origen. Fila i + 1: desde la parada i. Columna n: el destino.
+            # Si OSRM no encuentra camino devuelve None y la suma da TypeError.
+            km = (metros[0][i] + metros[i + 1][n]) / 1000
+            minutos = (segundos[0][i] + segundos[i + 1][n]) / 60
+            tramos.append(Tramo(km, minutos))
+        return tramos
 
 
 def ubicar(texto, localidad="ROSARIO", provincia="SANTA FE", cliente=requests):

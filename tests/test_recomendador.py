@@ -201,6 +201,26 @@ class TestOSRM(unittest.TestCase):
         rec = recomendar(precios, recorrido(), ruteador, "Diurno")
         self.assertIn("línea recta", rec.aviso)
 
+    def test_todas_las_paradas_en_una_consulta(self):
+        # Fila 0: desde el origen a P1, P2 y el destino; filas 1 y 2: desde P1 y P2.
+        cliente = ClienteFalso({
+            "code": "Ok",
+            "distances": [[1000, 2000, 5000], [0, 1500, 4500], [1500, 0, 3500]],
+            "durations": [[60, 120, 300], [0, 90, 270], [90, 0, 210]],
+        })
+        tramos = RuteadorOSRM(cliente=cliente).via(ORIGEN, ["P1", "P2"], DESTINO)
+        self.assertEqual(cliente.llamadas, 1)
+        self.assertEqual([round(t.km, 3) for t in tramos], [5.5, 5.5])
+        self.assertEqual([t.minutos for t in tramos], [5.5, 5.5])
+
+    def test_parada_sin_camino_usa_el_respaldo(self):
+        cliente = ClienteFalso({"code": "Ok", "distances": [[None, 5000], [0, 4500]],
+                                "durations": [[None, 300], [0, 270]]})
+        ruteador = RuteadorOSRM(cliente=cliente, respaldo=RECTA)
+        tramos = ruteador.via(ORIGEN, [SOBRE_EL_RECORRIDO], DESTINO)
+        self.assertTrue(tramos[0].estimado)
+        self.assertIsNotNone(ruteador.falla)
+
     def test_restar_tramos(self):
         self.assertEqual(Tramo(5, 10) - Tramo(3, 4, estimado=True), Tramo(2, 6, estimado=True))
 
