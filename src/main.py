@@ -2,13 +2,23 @@
 
 Uso:
     python -m src.main inspeccionar data/muestra/precios_muestra.csv
+    python -m src.main limpiar data/muestra/precios_rosario_real.csv
 """
 
 import argparse
 import sys
+from datetime import datetime
+from pathlib import Path
 
-from src.config import CAMPOS_PRECIO
+from src.config import CAMPOS_PRECIO, DIR_SALIDAS
 from src.fuentes import ErrorFuente, fuente_para
+from src.pipeline import (
+    FORMATO_FECHA,
+    ErrorEsquema,
+    guardar_csv,
+    limpiar_precios,
+    resumen_motivos,
+)
 
 
 def tipo_aparente(valores):
@@ -51,6 +61,33 @@ def inspeccionar(registros, mostrar=3):
             print(" ", registro)
 
 
+def limpiar(registros, fecha_consulta, carpeta_salida):
+    validos, rechazos = limpiar_precios(registros, fecha_consulta)
+
+    ruta_validos = carpeta_salida / "precios_limpios.csv"
+    ruta_rechazos = carpeta_salida / "rechazos.csv"
+    guardar_csv(validos, ruta_validos, CAMPOS_PRECIO)
+    guardar_csv(rechazos, ruta_rechazos, ["fila", "motivo"] + CAMPOS_PRECIO)
+
+    print(f"Fecha de consulta: {fecha_consulta:{FORMATO_FECHA}}")
+    print(f"Leídos: {len(registros)}  Válidos: {len(validos)}  Rechazados: {len(rechazos)}")
+    if rechazos:
+        print("\nMotivos de rechazo:")
+        for motivo, cantidad in resumen_motivos(rechazos).items():
+            print(f"  {cantidad:>5}  {motivo}")
+    print(f"\nVálidos en {ruta_validos}")
+    print(f"Rechazos en {ruta_rechazos}")
+
+
+def fecha_argumento(texto):
+    try:
+        return datetime.strptime(texto, FORMATO_FECHA)
+    except ValueError:
+        raise argparse.ArgumentTypeError(
+            f"'{texto}' no es una fecha válida con formato AAAA-MM-DD HH:MM:SS"
+        ) from None
+
+
 def crear_parser():
     parser = argparse.ArgumentParser(
         prog="nafteando",
@@ -64,6 +101,20 @@ def crear_parser():
     p_inspeccionar.add_argument("ruta", help="archivo .csv o .json")
     p_inspeccionar.add_argument(
         "-n", "--mostrar", type=int, default=3, help="cuántos registros mostrar (3 por defecto)"
+    )
+
+    p_limpiar = comandos.add_parser(
+        "limpiar", help="valida y limpia los precios, y guarda los rechazos con su motivo"
+    )
+    p_limpiar.add_argument("ruta", help="archivo .csv o .json")
+    p_limpiar.add_argument(
+        "--fecha-consulta",
+        type=fecha_argumento,
+        default=None,
+        help="momento de la consulta, 'AAAA-MM-DD HH:MM:SS' (ahora por defecto)",
+    )
+    p_limpiar.add_argument(
+        "--salida", type=Path, default=DIR_SALIDAS, help="carpeta de salida (outputs/ por defecto)"
     )
     return parser
 
@@ -79,6 +130,12 @@ def main(argumentos=None):
 
     if args.comando == "inspeccionar":
         inspeccionar(registros, args.mostrar)
+    elif args.comando == "limpiar":
+        try:
+            limpiar(registros, args.fecha_consulta or datetime.now(), args.salida)
+        except ErrorEsquema as error:
+            print(f"Error: {error}", file=sys.stderr)
+            return 2
     return 0
 
 

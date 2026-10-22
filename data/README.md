@@ -11,7 +11,7 @@
 | Licencia | Creative Commons Attribution 4.0 (CC-BY-4.0) |
 | Formato | CSV (UTF-8 con BOM, separado por comas) |
 | Actualización | Cada hora |
-| Fecha de consulta | 21/10/2026 |
+| Fecha de consulta | 21/10/2026 (la muestra real, 22/10/2026) |
 
 El portal publica dos archivos: **precios vigentes** (el que usa la app) y
 **precios históricos**. El 21/10/2026 el de vigentes tenía 36.649 filas en
@@ -56,9 +56,22 @@ Valores de `producto` en el archivo de vigentes:
 - `Gas Oil Grado 3`
 - `GNC`
 
-## Muestra versionada (`muestra/`)
+## Muestras versionadas (`muestra/`)
 
-`precios_muestra.csv` y `precios_muestra.json` tienen el mismo contenido:
+### Muestra real: `precios_rosario_real.csv`
+
+86 filas reales del archivo de precios vigentes, descargado el 22/10/2026,
+de 10 estaciones de Rosario. Tiene todas las columnas originales, sin
+modificar. Se eligieron estaciones con precios recientes, otras con
+precios de distintas antigüedades y otras que no actualizan desde
+2025, para que la limpieza tenga los tres casos.
+
+Con `--fecha-consulta "2026-10-22 12:00:00"` quedan 56 filas válidas y 30
+rechazadas, todas por vigencia vieja.
+
+### Muestra ficticia: `precios_muestra.csv` y `precios_muestra.json`
+
+Los dos archivos tienen el mismo contenido:
 15 filas de **6 estaciones ficticias** de Rosario, con las mismas columnas
 que el dataset real. Los nombres, CUIT y direcciones son inventados; los
 precios están en el orden de magnitud de octubre de 2026.
@@ -97,5 +110,12 @@ pasar direcciones a coordenadas se usa Nominatim, también de OpenStreetMap.
   fuera de su provincia; esas filas se rechazan.
 - **Cobertura despareja**: no todas las estaciones informan todos los
   productos; el GNC tiene bastantes menos filas que las naftas.
-- **Gas Oil Grado 3** es el gasoil premium; hay que decidir si se compara
-  aparte o se agrupa con el Grado 2 (se resuelve en la limpieza).
+- **Muchas estaciones dejaron de informar.** El 22/10/2026, de 95
+  estaciones de Rosario solo 16 tenían precios de los últimos 60 días; el
+  resto seguía con precios de 2025. La recomendación solo puede elegir entre
+  las que informan, lo que deja afuera a estaciones que quizás son más
+  baratas.
+- **Coordenadas que no corresponden a la localidad**: hay estaciones con
+  localidad ROSARIO y coordenadas a más de 100 km, todavía dentro de Santa
+  Fe. El control por provincia no las detecta.
+- **Gas Oil Grado 3** es el gasoil premium y se compara aparte del Grado 2.
