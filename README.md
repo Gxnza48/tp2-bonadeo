@@ -46,7 +46,7 @@ ahorro neto positivo, la respuesta es **"no te desvíes"**.
 |---|---|---|
 | `inspeccionar` | Resume un CSV o JSON de precios: registros, campos, vacíos y tipos | listo |
 | `limpiar` | Valida y limpia los precios, y guarda las filas rechazadas con su motivo | listo |
-| `vigentes` | Precio vigente por estación y producto | pendiente |
+| `vigentes` | Precio vigente de cada estación de la ciudad, del más barato al más caro | listo |
 | `recomendar` | Estaciones ordenadas por ahorro neto para un recorrido | pendiente |
 | `actualizar` | Descarga el archivo de precios vigentes | pendiente |
 
@@ -100,12 +100,14 @@ tp2-bonadeo/
 ├── src/
 │   ├── config.py            rutas y valores por defecto
 │   ├── fuentes.py           lectura de CSV y JSON
-│   ├── pipeline.py          validación y limpieza
+│   ├── modelos.py           clases Estacion y PrecioEstacion
+│   ├── pipeline.py          validación, limpieza y precio vigente
 │   └── main.py              comandos de consola
 ├── tests/
 │   ├── fixtures/            archivos rotos para probar errores
 │   ├── test_fuentes.py
-│   └── test_pipeline.py
+│   ├── test_pipeline.py
+│   └── test_vigentes.py
 ├── requirements.txt
 └── README.md
 ```
@@ -127,6 +129,7 @@ pip install -r requirements.txt
 python -m src.main inspeccionar data/muestra/precios_muestra.csv
 python -m src.main inspeccionar data/muestra/precios_muestra.json -n 5
 python -m src.main limpiar data/muestra/precios_rosario_real.csv --fecha-consulta "2026-10-22 12:00:00"
+python -m src.main vigentes data/muestra/precios_muestra.csv --fecha-consulta "2026-10-22 12:00:00" --producto super --franja Diurno
 ```
 
 `limpiar` guarda `outputs/precios_limpios.csv` y `outputs/rechazos.csv`
@@ -141,6 +144,21 @@ Motivos de rechazo:
       1  duplicado
       1  precio no positivo
       1  vigencia de más de 60 días
+```
+
+`vigentes` limpia el archivo, se queda con la ciudad (Rosario por
+defecto; se cambia con `--localidad` y `--provincia`) y muestra el precio
+que rige en cada estación. Lo guarda en `outputs/precios_vigentes.csv`:
+
+```
+Precios vigentes en ROSARIO, SANTA FE al 22/10/2026 12:00
+(5 filas rechazadas en la limpieza, ver outputs/rechazos.csv)
+
+super · Diurno
+    $1.870,00  desde 05/10  RONDEAU GNC S.R.L. (PUMA), Av. Rondeau 3200
+    $1.880,00  desde 18/10  MENDOZA OESTE S.A. (YPF), Mendoza 7000
+    $1.890,00  desde 15/10  ESTACIÓN OROÑO S.R.L. (YPF), Bv. Oroño 1500
+    $1.925,00  desde 12/10  SERVICENTRO PELLEGRINI S.A. (SHELL C.A.P.S.A.), Av. Pellegrini 2100
 ```
 
 Sin `--fecha-consulta` se toma el momento actual. Como las muestras son de
@@ -179,8 +197,20 @@ vigencias recientes llegan hasta los 29 días y después hay un salto, así
 que 60 días deja margen para una estación que actualiza una vez por mes
 sin aceptar precios que ya no existen.
 
-La misma estación puede tener más de un precio válido para un producto
-(uno viejo y uno nuevo). Elegir el vigente es el paso siguiente.
+## Precio vigente
+
+Después de limpiar, cada fila pasa a un objeto `PrecioEstacion`, que
+conoce su `Estacion`, y para cada estación, producto y franja se elige
+**el precio más reciente que ya rige en el momento de la consulta**:
+
+- Un precio con vigencia posterior a la consulta todavía no se cobra y se
+  ignora. En la muestra, Oroño tiene súper a $1.790 desde el 10/09 y a
+  $1.890 desde el 15/10: consultando el 01/10 rige el primero; el 22/10, el
+  segundo.
+- Si dos precios tienen la misma vigencia, se queda el más caro, para no
+  prometerle al chofer un ahorro que quizás no existe.
+- Diurno y Nocturno se tratan como precios distintos, igual que cada
+  producto.
 
 ## Pruebas
 

@@ -3,6 +3,7 @@
 Uso:
     python -m src.main inspeccionar data/muestra/precios_muestra.csv
     python -m src.main limpiar data/muestra/precios_rosario_real.csv
+    python -m src.main vigentes data/muestra/precios_rosario_real.csv --producto super
 """
 
 import argparse
@@ -10,15 +11,24 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-from src.config import CAMPOS_PRECIO, DIR_SALIDAS
+from src.config import CAMPOS_PRECIO, CIUDAD_POR_DEFECTO, DIR_SALIDAS
 from src.fuentes import ErrorFuente, fuente_para
+from src.modelos import HORARIOS, PRODUCTOS
 from src.pipeline import (
     FORMATO_FECHA,
     ErrorEsquema,
+    armar_precios,
+    filtrar_ciudad,
     guardar_csv,
     limpiar_precios,
+    precios_vigentes,
     resumen_motivos,
 )
+
+CAMPOS_VIGENTES = [
+    "idempresa", "empresa", "bandera", "direccion", "latitud", "longitud",
+    "producto", "horario", "precio", "vigente_desde",
+]
 
 
 def tipo_aparente(valores):
@@ -79,6 +89,53 @@ def limpiar(registros, fecha_consulta, carpeta_salida):
     print(f"Rechazos en {ruta_rechazos}")
 
 
+def pesos(valor):
+    """1890.5 -> '$1.890,50'"""
+    return "$" + f"{valor:,.2f}".replace(",", "_").replace(".", ",").replace("_", ".")
+
+
+def vigentes(registros, fecha_consulta, localidad, provincia, producto, franja, carpeta_salida):
+    validos, rechazos = limpiar_precios(registros, fecha_consulta)
+    precios = filtrar_ciudad(armar_precios(validos), localidad, provincia)
+    seleccion = [
+        p for p in precios_vigentes(precios, fecha_consulta)
+        if (producto is None or p.producto == producto) and (franja is None or p.horario == franja)
+    ]
+
+    ruta = carpeta_salida / "precios_vigentes.csv"
+    guardar_csv(
+        [{
+            "idempresa": p.estacion.idempresa,
+            "empresa": p.estacion.empresa,
+            "bandera": p.estacion.bandera,
+            "direccion": p.estacion.direccion,
+            "latitud": p.estacion.latitud,
+            "longitud": p.estacion.longitud,
+            "producto": p.producto,
+            "horario": p.horario,
+            "precio": p.precio,
+            "vigente_desde": p.vigente_desde,
+        } for p in seleccion],
+        ruta,
+        CAMPOS_VIGENTES,
+    )
+    guardar_csv(rechazos, carpeta_salida / "rechazos.csv", ["fila", "motivo"] + CAMPOS_PRECIO)
+
+    print(f"Precios vigentes en {localidad}, {provincia} al {fecha_consulta:%d/%m/%Y %H:%M}")
+    print(f"({len(rechazos)} filas rechazadas en la limpieza, ver {carpeta_salida / 'rechazos.csv'})")
+    if not seleccion:
+        print("\nNo hay precios vigentes para esa búsqueda.")
+        return
+
+    grupo = None
+    for p in seleccion:
+        if (p.producto, p.horario) != grupo:
+            grupo = (p.producto, p.horario)
+            print(f"\n{p.producto} · {p.horario}")
+        print(f"  {pesos(p.precio):>11}  desde {p.vigente_desde:%d/%m}  {p.estacion}")
+    print(f"\nGuardado en {ruta}")
+
+
 def fecha_argumento(texto):
     try:
         return datetime.strptime(texto, FORMATO_FECHA)
@@ -116,6 +173,19 @@ def crear_parser():
     p_limpiar.add_argument(
         "--salida", type=Path, default=DIR_SALIDAS, help="carpeta de salida (outputs/ por defecto)"
     )
+
+    p_vigentes = comandos.add_parser(
+        "vigentes", help="precio vigente de cada estación de la ciudad, del más barato al más caro"
+    )
+    p_vigentes.add_argument("ruta", help="archivo .csv o .json")
+    p_vigentes.add_argument("--fecha-consulta", type=fecha_argumento, default=None,
+                            help="momento de la consulta, 'AAAA-MM-DD HH:MM:SS' (ahora por defecto)")
+    p_vigentes.add_argument("--producto", choices=PRODUCTOS, help="solo este producto")
+    p_vigentes.add_argument("--franja", choices=HORARIOS, help="solo esta franja horaria")
+    p_vigentes.add_argument("--localidad", default=CIUDAD_POR_DEFECTO[0])
+    p_vigentes.add_argument("--provincia", default=CIUDAD_POR_DEFECTO[1])
+    p_vigentes.add_argument("--salida", type=Path, default=DIR_SALIDAS,
+                            help="carpeta de salida (outputs/ por defecto)")
     return parser
 
 
@@ -130,12 +200,18 @@ def main(argumentos=None):
 
     if args.comando == "inspeccionar":
         inspeccionar(registros, args.mostrar)
-    elif args.comando == "limpiar":
-        try:
-            limpiar(registros, args.fecha_consulta or datetime.now(), args.salida)
-        except ErrorEsquema as error:
-            print(f"Error: {error}", file=sys.stderr)
-            return 2
+        return 0
+
+    fecha_consulta = args.fecha_consulta or datetime.now()
+    try:
+        if args.comando == "limpiar":
+            limpiar(registros, fecha_consulta, args.salida)
+        elif args.comando == "vigentes":
+            vigentes(registros, fecha_consulta, args.localidad, args.provincia,
+                     args.producto, args.franja, args.salida)
+    except ErrorEsquema as error:
+        print(f"Error: {error}", file=sys.stderr)
+        return 2
     return 0
 
 

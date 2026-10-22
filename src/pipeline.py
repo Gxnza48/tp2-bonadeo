@@ -1,8 +1,10 @@
-"""Validación y limpieza de los precios en surtidor.
+"""Validación, limpieza y transformación de los precios en surtidor.
 
 Recibe los registros tal como los devuelve fuentes.py (todo texto) y los
 separa en válidos, ya con sus tipos, y rechazados, con el motivo de cada
 rechazo. Ninguna fila se pierde: cada una termina en una de las dos listas.
+Después los válidos se pasan a objetos del dominio para quedarse con el
+precio vigente de cada estación.
 """
 
 import csv
@@ -20,6 +22,7 @@ from src.config import (
     LIMITES_PROVINCIA,
     MINIMO_PARA_MEDIANA,
 )
+from src.modelos import HORARIOS, Estacion, PrecioEstacion
 
 PATRON_CUIT = re.compile(r"^(\d{2})-(\d{8})-(\d)$")
 PESOS_CUIT = (5, 4, 3, 2, 7, 6, 5, 4, 3, 2)
@@ -30,15 +33,13 @@ FORMATO_FECHA = "%Y-%m-%d %H:%M:%S"
 # Nombre del producto ya normalizado (minúsculas, sin tildes, espacios
 # simples) -> categoría que usa la app. El gasoil grado 3 es el premium y
 # se compara aparte: no es el mismo producto que el grado 2.
-PRODUCTOS = {
+NOMBRES_PRODUCTO = {
     "nafta (super) entre 92 y 95 ron": "super",
     "nafta (premium) de mas de 95 ron": "premium",
     "gas oil grado 2": "gasoil",
     "gas oil grado 3": "gasoil premium",
     "gnc": "gnc",
 }
-
-HORARIOS = ("Diurno", "Nocturno")
 
 CAMPOS_OBLIGATORIOS = (
     "idempresa", "cuit", "localidad", "provincia", "producto",
@@ -109,7 +110,7 @@ def leer_numero(texto):
 
 
 def categoria_producto(nombre):
-    return PRODUCTOS.get(normalizar_texto(nombre))
+    return NOMBRES_PRODUCTO.get(normalizar_texto(nombre))
 
 
 def problema_coordenadas(latitud, longitud, provincia):
@@ -248,3 +249,66 @@ def guardar_csv(filas, ruta, campos):
         escritor = csv.DictWriter(archivo, fieldnames=campos, extrasaction="ignore")
         escritor.writeheader()
         escritor.writerows(filas)
+
+
+def armar_precios(validos):
+    """Pasa los registros limpios a objetos PrecioEstacion.
+
+    Todas las filas de una estación comparten el mismo objeto Estacion,
+    armado con los datos de la primera fila en que aparece.
+    """
+    estaciones = {}
+    precios = []
+    for fila in validos:
+        estacion = estaciones.get(fila["idempresa"])
+        if estacion is None:
+            estacion = Estacion(
+                idempresa=fila["idempresa"],
+                cuit=fila["cuit"],
+                empresa=fila["empresa"],
+                direccion=fila["direccion"],
+                localidad=fila["localidad"],
+                provincia=fila["provincia"],
+                bandera=fila["empresabandera"],
+                latitud=fila["latitud"],
+                longitud=fila["longitud"],
+            )
+            estaciones[fila["idempresa"]] = estacion
+        precios.append(PrecioEstacion(
+            estacion=estacion,
+            producto=fila["producto"],
+            horario=fila["tipohorario"],
+            precio=fila["precio"],
+            vigente_desde=fila["fecha_vigencia"],
+        ))
+    return precios
+
+
+def filtrar_ciudad(precios, localidad, provincia):
+    localidad, provincia = normalizar_texto(localidad), normalizar_texto(provincia)
+    return [
+        p for p in precios
+        if normalizar_texto(p.estacion.localidad) == localidad
+        and normalizar_texto(p.estacion.provincia) == provincia
+    ]
+
+
+def precios_vigentes(precios, fecha_consulta):
+    """El precio que rige en cada estación, producto y franja.
+
+    Es el más reciente que no supera el momento de la consulta: los que
+    empiezan a regir después todavía no se cobran. Si dos tienen la misma
+    vigencia se queda el más caro, para no prometer un ahorro que quizás
+    no existe.
+    """
+    vigentes = {}
+    for precio in precios:
+        if not precio.rige_en(fecha_consulta):
+            continue
+        actual = vigentes.get(precio.clave)
+        if actual is None or (precio.vigente_desde, precio.precio) > (actual.vigente_desde, actual.precio):
+            vigentes[precio.clave] = precio
+    return sorted(
+        vigentes.values(),
+        key=lambda p: (p.producto, p.horario, p.precio, p.estacion.idempresa),
+    )
