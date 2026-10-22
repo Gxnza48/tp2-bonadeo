@@ -122,13 +122,17 @@ tp2-bonadeo/
 │   ├── pipeline.py          validación, limpieza y precio vigente
 │   ├── ruteo.py             distancias (OSRM o línea recta) y direcciones
 │   ├── recomendador.py      desvío y ahorro neto
-│   └── main.py              comandos de consola
+│   ├── main.py              comandos de consola
+│   ├── web.py               web app (Flask): página y API
+│   ├── templates/index.html
+│   └── static/              estilos y JavaScript del mapa
 ├── tests/
 │   ├── fixtures/            archivos rotos para probar errores
 │   ├── test_fuentes.py
 │   ├── test_pipeline.py
 │   ├── test_vigentes.py
-│   └── test_recomendador.py
+│   ├── test_recomendador.py
+│   └── test_web.py
 ├── requirements.txt
 └── README.md
 ```
@@ -251,6 +255,40 @@ conoce su `Estacion`, y para cada estación, producto y franja se elige
   prometerle al chofer un ahorro que quizás no existe.
 - Diurno y Nocturno se tratan como precios distintos, igual que cada
   producto.
+
+## Web
+
+```
+flask --app src.web run
+```
+
+y abrir http://127.0.0.1:5000 en el navegador (en el celular, con las
+herramientas de desarrollador en modo móvil, o desde la misma red con
+`--host 0.0.0.0`).
+
+La página está pensada para el celular: el chofer elige "Cerca mío" o
+"Tengo destino", toca **Mi ubicación** para usar el GPS del teléfono, elige
+el combustible y toca **¿Dónde cargo?**. Arriba aparece el veredicto
+("Andá a ...: ahorrás $N" o "No te desvíes"), la cuenta desglosada y un
+botón **Cómo llegar** que abre la navegación. Abajo, el mapa con la salida,
+el destino, la referencia (naranja) y la estación que conviene (verde).
+Litros, consumo y valor de la hora se recuerdan en el navegador.
+
+La web no repite lógica: `src/web.py` lee los parámetros, llama a las
+mismas funciones que la consola y devuelve JSON.
+
+| Ruta | Qué devuelve |
+|---|---|
+| `GET /` | La página |
+| `GET /api/estaciones?producto=super` | Precios vigentes del producto en la franja actual, para el mapa |
+| `GET /api/recomendar?desde=...&hasta=...&producto=...&litros=...&consumo=...&valor_hora=...` | La recomendación; 400 con el motivo si un dato está mal, 404 si no hay estaciones cerca |
+
+Variables de entorno opcionales:
+
+- `NAFTEANDO_DATOS`: archivo de precios (por defecto, la muestra real).
+- `NAFTEANDO_FECHA_CONSULTA`: fija el "ahora", por ejemplo
+  `2026-10-22 12:00:00`, para mostrar la muestra cuando sus precios ya
+  quedaron viejos.
 
 ## Cómo se calcula la recomendación
 
