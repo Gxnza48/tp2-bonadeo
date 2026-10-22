@@ -312,3 +312,13 @@ def precios_vigentes(precios, fecha_consulta):
         vigentes.values(),
         key=lambda p: (p.producto, p.horario, p.precio, p.estacion.idempresa),
     )
+
+
+def procesar(registros, fecha_consulta, localidad, provincia):
+    """Todo el flujo: limpia, arma los objetos, filtra la ciudad y elige vigentes.
+
+    Devuelve (vigentes, rechazos).
+    """
+    validos, rechazos = limpiar_precios(registros, fecha_consulta)
+    precios = filtrar_ciudad(armar_precios(validos), localidad, provincia)
+    return precios_vigentes(precios, fecha_consulta), rechazos

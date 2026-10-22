@@ -48,3 +48,33 @@ LIMITES_ARGENTINA = (-55.1, -21.7, -73.6, -53.6)
 LIMITES_PROVINCIA = {
     "SANTA FE": (-34.5, -28.0, -63.0, -58.8),
 }
+
+# --- Recomendación ---
+
+URL_OSRM = "https://router.project-osrm.org"
+URL_NOMINATIM = "https://nominatim.openstreetmap.org"
+# Nominatim y OSRM piden identificar la aplicación.
+USER_AGENT = "nafteando-tp2 (github.com/Gxnza48/tp2-bonadeo)"
+
+# Respaldo cuando OSRM no responde: en ciudad, el recorrido por calle es
+# alrededor de un 30 % más largo que la línea recta.
+FACTOR_RODEO = 1.3
+VELOCIDAD_PROMEDIO_KMH = 25
+
+# Solo se calcula el desvío de las estaciones a menos de esta distancia
+# (en línea recta) del origen o del destino, para no consultar OSRM por
+# estaciones que nunca van a convenir.
+RADIO_BUSQUEDA_KM = 6
+
+# Centro aproximado de cada ciudad (lat, lon). Las direcciones se buscan
+# solo en un recuadro de MARGEN_BUSQUEDA_GRADOS alrededor (unos 13 km),
+# porque si no "Córdoba 1500" puede aparecer en Funes.
+CENTROS_CIUDAD = {
+    ("ROSARIO", "SANTA FE"): (-32.9468, -60.6393),
+}
+MARGEN_BUSQUEDA_GRADOS = 0.12
+
+# Franja nocturna (de las 22 a las 6). El dataset no la define; es un
+# supuesto de la app.
+HORA_INICIO_NOCTURNO = 22
+HORA_FIN_NOCTURNO = 6

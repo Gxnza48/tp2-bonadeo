@@ -96,7 +96,11 @@ Para la distancia y la duración del desvío se usa el servidor público de
 [OSRM](https://project-osrm.org/) sobre datos de OpenStreetMap (licencia
 ODbL, © colaboradores de OpenStreetMap). No necesita clave. Si no responde,
 la app estima en línea recta y marca el resultado como estimación. Para
-pasar direcciones a coordenadas se usa Nominatim, también de OpenStreetMap.
+pasar direcciones a coordenadas se usa Nominatim, también de OpenStreetMap,
+limitando la búsqueda a los alrededores de la ciudad. Los dos servidores
+públicos piden un uso moderado (Nominatim, como máximo una consulta por
+segundo) y que la aplicación se identifique; la app manda un User-Agent
+propio.
 
 ## Limitaciones y sesgos
 

@@ -32,10 +32,11 @@ ahorro_neto = (precio_referencia − precio_estación) × litros
             − (minutos_desvío / 60) × valor_hora        (opcional)
 ```
 
-- `precio_referencia`: precio de la estación más cercana sobre el recorrido,
-  o sea, donde cargaría sin usar la app.
+- `precio_referencia`: precio de la estación con menos desvío, o sea,
+  donde cargaría sin usar la app.
 - `km_desvío = distancia(A → estación → B) − distancia(A → B)`.
   En el modo "cerca mío" el desvío es ida y vuelta desde donde está.
+  Las distancias y los minutos son por calle, con OSRM.
 
 Cada producto se compara solo con su mismo producto. Si ninguna estación da
 ahorro neto positivo, la respuesta es **"no te desvíes"**.
@@ -47,23 +48,39 @@ ahorro neto positivo, la respuesta es **"no te desvíes"**.
 | `inspeccionar` | Resume un CSV o JSON de precios: registros, campos, vacíos y tipos | listo |
 | `limpiar` | Valida y limpia los precios, y guarda las filas rechazadas con su motivo | listo |
 | `vigentes` | Precio vigente de cada estación de la ciudad, del más barato al más caro | listo |
-| `recomendar` | Estaciones ordenadas por ahorro neto para un recorrido | pendiente |
+| `recomendar` | Estaciones ordenadas por ahorro neto para un recorrido | listo |
 | `actualizar` | Descarga el archivo de precios vigentes | pendiente |
 
-## Ejemplo de resultado (objetivo de la v1)
+## Ejemplo de resultado
+
+Con la muestra real, saliendo de Av. Pellegrini 1500 hacia Av. Ovidio
+Lagos 4000, para cargar 30 litros de súper con un auto que hace 12 km/L:
 
 ```
-Recorrido: Bv. Oroño 1500 → Av. Alberdi 1100 · nafta súper · 30 L · 12 km/L
-Referencia: Servicentro Pellegrini (sobre el recorrido) a $1925/L
+python -m src.main recomendar data/muestra/precios_rosario_real.csv --desde "Av. Pellegrini 1500" --hasta "Av. Ovidio Lagos 4000" --fecha-consulta "2026-10-22 12:00:00"
 
-1. Rondeau GNC (PUMA)      $1870/L  desvío 0,8 km  ahorro neto $1525
-2. Mendoza Oeste (YPF)     $1880/L  desvío 3,1 km  ahorro neto  $864
-→ Conviene ir a Rondeau GNC: ahorrás $1525 en 30 litros.
+Recorrido con destino · super diurno · 30 L · 12 km/L
+Referencia (la de menor desvío): CRISTOFARO HERMANOS SRL (SHELL C.A.P.S.A.), OVIDIO LAGOS 4502 a $2.254,00
+
+       precio    desvío  minutos   ahorro neto  estación
+ 1  $2.212,00    2.1 km        4       $873,40  BRIBAL AGRO SRL (PUMA), PUEYRREDON 1089
+ 2  $2.212,00    9.1 km       14      -$416,81  REFINERIA BAHIA BLANCA S.A.U. (PUMA), AVELLANEDA 519
+ 3  $2.254,00    7.3 km       13    -$1.365,21  VETVEL SA (SHELL C.A.P.S.A.), Monteagudo 224
+
+-> Conviene ir a BRIBAL AGRO SRL (PUMA): ahorrás $873,40.
+   $1.260,00 menos en el surtidor, $386,60 de combustible en el desvío.
 ```
 
-Se lee así: cargando en Rondeau en vez de en la estación de referencia
-ahorra $1650 en el surtidor, pero el desvío consume unos $125 de nafta; lo
-que queda es lo que gana el chofer.
+Se lee así: sin la app cargaría en la Shell de Ovidio Lagos, que le queda
+de paso, a $2.254. La PUMA de Pueyrredón cobra $42 menos por litro: en 30
+litros son $1.260, pero llegar hasta ahí le agrega 2,1 km, que gastan
+$386,60 de nafta. Lo que gana de verdad son $873,40. La otra PUMA tiene el
+mismo precio pero el desvío de 9,1 km se come todo el ahorro, así que
+aparece con ahorro negativo.
+
+Si ninguna da ahorro positivo, la respuesta es "No te desvíes: cargá en
+<la referencia>". El detalle de cada estación queda en
+`outputs/recomendacion.csv`.
 
 ## Alcance de la v1
 
@@ -100,14 +117,18 @@ tp2-bonadeo/
 ├── src/
 │   ├── config.py            rutas y valores por defecto
 │   ├── fuentes.py           lectura de CSV y JSON
-│   ├── modelos.py           clases Estacion y PrecioEstacion
+│   ├── modelos.py           clases del dominio (Estacion, PrecioEstacion,
+│   │                        Recorrido, OpcionCarga, RecomendacionCarga)
 │   ├── pipeline.py          validación, limpieza y precio vigente
+│   ├── ruteo.py             distancias (OSRM o línea recta) y direcciones
+│   ├── recomendador.py      desvío y ahorro neto
 │   └── main.py              comandos de consola
 ├── tests/
 │   ├── fixtures/            archivos rotos para probar errores
 │   ├── test_fuentes.py
 │   ├── test_pipeline.py
-│   └── test_vigentes.py
+│   ├── test_vigentes.py
+│   └── test_recomendador.py
 ├── requirements.txt
 └── README.md
 ```
@@ -130,7 +151,26 @@ python -m src.main inspeccionar data/muestra/precios_muestra.csv
 python -m src.main inspeccionar data/muestra/precios_muestra.json -n 5
 python -m src.main limpiar data/muestra/precios_rosario_real.csv --fecha-consulta "2026-10-22 12:00:00"
 python -m src.main vigentes data/muestra/precios_muestra.csv --fecha-consulta "2026-10-22 12:00:00" --producto super --franja Diurno
+python -m src.main recomendar data/muestra/precios_rosario_real.csv --desde "Av. Pellegrini 1500" --hasta "Av. Ovidio Lagos 4000" --fecha-consulta "2026-10-22 12:00:00"
+python -m src.main recomendar data/muestra/precios_muestra.csv --desde=-32.951,-60.653 --sin-osrm --fecha-consulta "2026-10-22 12:00:00"
 ```
+
+Opciones de `recomendar`:
+
+| Opción | Qué es | Por defecto |
+|---|---|---|
+| `--desde` | Dirección o `lat,lon` de partida | obligatoria |
+| `--hasta` | Dirección o `lat,lon` de destino; sin esto es modo "cerca mío" | — |
+| `--producto` | `super`, `premium`, `gasoil`, `gasoil premium` o `gnc` | `super` |
+| `--litros` | Litros a cargar | 30 |
+| `--consumo` | Kilómetros por litro del auto | 12 |
+| `--valor-hora` | Cuánto vale una hora del chofer, para sumar el costo del tiempo | 0 |
+| `--franja` | `Diurno` o `Nocturno` | según la hora de la consulta |
+| `--sin-osrm` | Estimar en línea recta, sin internet | — |
+
+Si las coordenadas empiezan con `-` hay que escribirlas con `=`
+(`--desde=-32.951,-60.653`), porque si no `argparse` las toma como otra
+opción.
 
 `limpiar` guarda `outputs/precios_limpios.csv` y `outputs/rechazos.csv`
 (cada fila rechazada con su número y el motivo) y muestra un resumen:
@@ -211,6 +251,29 @@ conoce su `Estacion`, y para cada estación, producto y franja se elige
   prometerle al chofer un ahorro que quizás no existe.
 - Diurno y Nocturno se tratan como precios distintos, igual que cada
   producto.
+
+## Cómo se calcula la recomendación
+
+1. Se limpian los precios y se toma el vigente de cada estación de la
+   ciudad (ver arriba).
+2. Se quedan las estaciones del producto y la franja pedidos a menos de
+   6 km en línea recta del origen o del destino. Más lejos no tiene sentido
+   consultar el desvío.
+3. Para cada una se pide a OSRM la ruta pasando por la estación. Si OSRM
+   no responde, se avisa y se estima en línea recta × 1,3 (las calles no
+   van en línea recta) a 25 km/h; el resultado queda marcado como
+   estimación.
+4. La **referencia** es la estación con menos desvío. El desvío de las
+   demás se mide contra el de la referencia, porque ese tramo lo haría igual
+   para cargar.
+5. Se calcula el ahorro neto de cada una y se ordenan de mayor a menor; con
+   el mismo ahorro va primero la más cercana. Si la primera no tiene ahorro
+   positivo, conviene no desviarse.
+
+Supuestos: la franja nocturna va de 22 a 6 (el dataset no lo dice) y el
+costo del desvío se calcula con el precio de la estación a la que se va.
+Las direcciones se buscan con Nominatim dentro de un recuadro alrededor de
+la ciudad.
 
 ## Pruebas
 

@@ -4,6 +4,7 @@ Uso:
     python -m src.main inspeccionar data/muestra/precios_muestra.csv
     python -m src.main limpiar data/muestra/precios_rosario_real.csv
     python -m src.main vigentes data/muestra/precios_rosario_real.csv --producto super
+    python -m src.main recomendar data/muestra/precios_rosario_real.csv --desde "Oroño 1500" --hasta "Pellegrini 3000"
 """
 
 import argparse
@@ -13,17 +14,17 @@ from pathlib import Path
 
 from src.config import CAMPOS_PRECIO, CIUDAD_POR_DEFECTO, DIR_SALIDAS
 from src.fuentes import ErrorFuente, fuente_para
-from src.modelos import HORARIOS, PRODUCTOS
+from src.modelos import HORARIOS, PRODUCTOS, Recorrido
 from src.pipeline import (
     FORMATO_FECHA,
     ErrorEsquema,
-    armar_precios,
-    filtrar_ciudad,
     guardar_csv,
     limpiar_precios,
-    precios_vigentes,
+    procesar,
     resumen_motivos,
 )
+from src.recomendador import SinEstaciones, franja_para, recomendar
+from src.ruteo import ErrorRuteo, RuteadorLineaRecta, RuteadorOSRM, ubicar
 
 CAMPOS_VIGENTES = [
     "idempresa", "empresa", "bandera", "direccion", "latitud", "longitud",
@@ -91,14 +92,14 @@ def limpiar(registros, fecha_consulta, carpeta_salida):
 
 def pesos(valor):
     """1890.5 -> '$1.890,50'"""
-    return "$" + f"{valor:,.2f}".replace(",", "_").replace(".", ",").replace("_", ".")
+    texto = "$" + f"{abs(valor):,.2f}".replace(",", "_").replace(".", ",").replace("_", ".")
+    return "-" + texto if valor < 0 else texto
 
 
 def vigentes(registros, fecha_consulta, localidad, provincia, producto, franja, carpeta_salida):
-    validos, rechazos = limpiar_precios(registros, fecha_consulta)
-    precios = filtrar_ciudad(armar_precios(validos), localidad, provincia)
+    todos, rechazos = procesar(registros, fecha_consulta, localidad, provincia)
     seleccion = [
-        p for p in precios_vigentes(precios, fecha_consulta)
+        p for p in todos
         if (producto is None or p.producto == producto) and (franja is None or p.horario == franja)
     ]
 
@@ -134,6 +135,75 @@ def vigentes(registros, fecha_consulta, localidad, provincia, producto, franja, 
             print(f"\n{p.producto} · {p.horario}")
         print(f"  {pesos(p.precio):>11}  desde {p.vigente_desde:%d/%m}  {p.estacion}")
     print(f"\nGuardado en {ruta}")
+
+
+def mostrar_recomendacion(rec):
+    recorrido = rec.recorrido
+    modo = "cerca mío (ida y vuelta)" if recorrido.cerca_mio else "con destino"
+    detalle = (f"{recorrido.producto} {rec.franja.lower()} · {recorrido.litros:g} L · "
+               f"{recorrido.consumo_km_por_litro:g} km/L")
+    if recorrido.valor_hora:
+        detalle += f" · hora a {pesos(recorrido.valor_hora)}"
+    print(f"Recorrido {modo} · {detalle}")
+    ref = rec.referencia.precio
+    print(f"Referencia (la de menor desvío): {ref.estacion} a {pesos(ref.precio)}\n")
+
+    print(f"   {'precio':>10}  {'desvío':>8}  {'minutos':>7}  {'ahorro neto':>12}  estación")
+    for numero, opcion in enumerate(rec.opciones, start=1):
+        print(f"{numero:>2} {pesos(opcion.precio.precio):>10}  {opcion.km_desvio:>5.1f} km  "
+              f"{opcion.minutos_desvio:>7.0f}  {pesos(opcion.ahorro_neto):>12}  {opcion.precio.estacion}")
+
+    print()
+    if rec.conviene_desviarse:
+        mejor = rec.mejor
+        print(f"-> Conviene ir a {mejor.precio.estacion.nombre}: ahorrás {pesos(mejor.ahorro_neto)}.")
+        cuenta = (f"   {pesos(mejor.ahorro_surtidor)} menos en el surtidor, "
+                  f"{pesos(mejor.costo_combustible_desvio)} de combustible en el desvío")
+        if mejor.costo_tiempo:
+            cuenta += f" y {pesos(mejor.costo_tiempo)} de tu tiempo"
+        print(cuenta + ".")
+    else:
+        print(f"-> No te desvíes: cargá en {ref.estacion.nombre}.")
+    if rec.aviso:
+        print(f"\nAviso: {rec.aviso}.")
+    elif rec.estimado:
+        print("\nDistancias estimadas en línea recta.")
+
+
+def guardar_recomendacion(rec, ruta):
+    filas = []
+    for opcion in [rec.referencia] + rec.opciones:
+        estacion = opcion.precio.estacion
+        filas.append({
+            "referencia": opcion is rec.referencia,
+            "idempresa": estacion.idempresa,
+            "estacion": estacion.nombre,
+            "direccion": estacion.direccion,
+            "precio": opcion.precio.precio,
+            "km_desvio": round(opcion.km_desvio, 3),
+            "minutos_desvio": round(opcion.minutos_desvio, 1),
+            "ahorro_surtidor": round(opcion.ahorro_surtidor, 2),
+            "costo_combustible_desvio": round(opcion.costo_combustible_desvio, 2),
+            "costo_tiempo": round(opcion.costo_tiempo, 2),
+            "ahorro_neto": round(opcion.ahorro_neto, 2),
+            "estimado": opcion.estimado,
+        })
+    guardar_csv(filas, ruta, list(filas[0]))
+
+
+def ejecutar_recomendar(registros, fecha_consulta, args):
+    vigentes_ciudad, _ = procesar(registros, fecha_consulta, args.localidad, args.provincia)
+    origen = ubicar(args.desde, args.localidad, args.provincia)
+    destino = ubicar(args.hasta, args.localidad, args.provincia) if args.hasta else None
+    recorrido = Recorrido(origen, destino, args.producto, args.litros, args.consumo, args.valor_hora)
+    ruteador = RuteadorLineaRecta() if args.sin_osrm else RuteadorOSRM()
+    franja = args.franja or franja_para(fecha_consulta)
+
+    rec = recomendar(vigentes_ciudad, recorrido, ruteador, franja)
+    mostrar_recomendacion(rec)
+    ruta = args.salida / "recomendacion.csv"
+    guardar_recomendacion(rec, ruta)
+    print(f"\nDetalle en {ruta}")
 
 
 def fecha_argumento(texto):
@@ -186,6 +256,27 @@ def crear_parser():
     p_vigentes.add_argument("--provincia", default=CIUDAD_POR_DEFECTO[1])
     p_vigentes.add_argument("--salida", type=Path, default=DIR_SALIDAS,
                             help="carpeta de salida (outputs/ por defecto)")
+
+    p_recomendar = comandos.add_parser(
+        "recomendar", help="¿a qué estación conviene ir? ordena por ahorro neto"
+    )
+    p_recomendar.add_argument("ruta", help="archivo .csv o .json")
+    p_recomendar.add_argument("--desde", required=True, help="dirección o 'lat,lon' de partida")
+    p_recomendar.add_argument("--hasta", help="dirección o 'lat,lon' de destino (sin esto: cerca mío)")
+    p_recomendar.add_argument("--producto", choices=PRODUCTOS, default="super")
+    p_recomendar.add_argument("--litros", type=float, default=30)
+    p_recomendar.add_argument("--consumo", type=float, default=12, help="km por litro (12 por defecto)")
+    p_recomendar.add_argument("--valor-hora", type=float, default=0,
+                              help="cuánto vale tu hora, para sumar el costo del tiempo (0 por defecto)")
+    p_recomendar.add_argument("--franja", choices=HORARIOS, help="por defecto, según la hora de la consulta")
+    p_recomendar.add_argument("--sin-osrm", action="store_true",
+                              help="estimar en línea recta sin consultar OSRM")
+    p_recomendar.add_argument("--fecha-consulta", type=fecha_argumento, default=None,
+                              help="momento de la consulta, 'AAAA-MM-DD HH:MM:SS' (ahora por defecto)")
+    p_recomendar.add_argument("--localidad", default=CIUDAD_POR_DEFECTO[0])
+    p_recomendar.add_argument("--provincia", default=CIUDAD_POR_DEFECTO[1])
+    p_recomendar.add_argument("--salida", type=Path, default=DIR_SALIDAS,
+                              help="carpeta de salida (outputs/ por defecto)")
     return parser
 
 
@@ -209,7 +300,9 @@ def main(argumentos=None):
         elif args.comando == "vigentes":
             vigentes(registros, fecha_consulta, args.localidad, args.provincia,
                      args.producto, args.franja, args.salida)
-    except ErrorEsquema as error:
+        elif args.comando == "recomendar":
+            ejecutar_recomendar(registros, fecha_consulta, args)
+    except (ErrorEsquema, ErrorRuteo, SinEstaciones, ValueError) as error:
         print(f"Error: {error}", file=sys.stderr)
         return 2
     return 0
