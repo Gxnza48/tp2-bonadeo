@@ -62,6 +62,8 @@ LIMITES_PROVINCIA = {
 
 URL_OSRM = "https://router.project-osrm.org"
 URL_NOMINATIM = "https://nominatim.openstreetmap.org"
+URL_GEOREF = "https://apis.datos.gob.ar/georef/api"
+URL_PHOTON = "https://photon.komoot.io"
 # Nominatim y OSRM piden identificar la aplicación.
 USER_AGENT = "nafteando-tp2 (github.com/Gxnza48/tp2-bonadeo)"
 

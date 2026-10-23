@@ -22,15 +22,23 @@ import time
 from datetime import datetime
 from pathlib import Path
 
+import requests
 from flask import Flask, jsonify, render_template, request
 
-from src.config import ARCHIVO_VIGENTES, CIUDAD_POR_DEFECTO, DIR_MUESTRA, MINUTOS_ENTRE_DESCARGAS
+from src.config import (
+    ARCHIVO_VIGENTES,
+    CENTROS_CIUDAD,
+    CIUDAD_POR_DEFECTO,
+    DIR_MUESTRA,
+    MINUTOS_ENTRE_DESCARGAS,
+)
 from src.descarga import ErrorDescarga, antiguedad_minutos, descargar_precios
 from src.fuentes import ErrorFuente, fuente_para
 from src.modelos import HORARIOS, PRODUCTOS, Recorrido
 from src.pipeline import FORMATO_FECHA, ErrorEsquema, procesar
 from src.recomendador import SinEstaciones, franja_para, recomendar
-from src.ruteo import ErrorRuteo, RuteadorOSRM, ubicar
+from src.direcciones import GeocodificadorNominatim, sugerir, ubicar
+from src.ruteo import ErrorRuteo, RuteadorOSRM
 
 MUESTRA = DIR_MUESTRA / "precios_rosario_real.csv"
 # La muestra se bajó ese día: sus precios se calculan a esa fecha, para que
@@ -166,7 +174,8 @@ def elegir_precios(localidad, provincia):
     return Precios(ARCHIVO_VIGENTES if ARCHIVO_VIGENTES.exists() else MUESTRA, localidad, provincia)
 
 
-def crear_app(precios=None, fecha_consulta=None, ruteador_factory=RuteadorOSRM, ubicador=ubicar):
+def crear_app(precios=None, fecha_consulta=None, ruteador_factory=RuteadorOSRM, ubicador=ubicar,
+              sugeridor=sugerir, describidor=None):
     """Arma la app. Los parámetros permiten probarla sin internet.
 
     fecha_consulta fija el "ahora" (sirve para mostrar la muestra de
@@ -179,12 +188,41 @@ def crear_app(precios=None, fecha_consulta=None, ruteador_factory=RuteadorOSRM, 
     if fecha_fija is None and os.environ.get("NAFTEANDO_FECHA_CONSULTA"):
         fecha_fija = datetime.strptime(os.environ["NAFTEANDO_FECHA_CONSULTA"], FORMATO_FECHA)
 
+    describidor = describidor or GeocodificadorNominatim().describir
+    centro = CENTROS_CIUDAD.get((localidad, provincia), (-32.9468, -60.6393))
+
     def ahora():
         return fecha_fija or datetime.now()
 
     @app.get("/")
     def inicio():
-        return render_template("index.html", productos=ETIQUETAS_PRODUCTO, ciudad=localidad.title())
+        return render_template(
+            "index.html", productos=ETIQUETAS_PRODUCTO, ciudad=localidad.title(), centro=centro
+        )
+
+    @app.get("/api/sugerencias")
+    def sugerencias():
+        texto = request.args.get("q", "").strip()
+        if len(texto) < 3:
+            return jsonify(sugerencias=[])
+        return jsonify(sugerencias=[
+            {"nombre": lugar.nombre, "latitud": lugar.latitud, "longitud": lugar.longitud}
+            for lugar in sugeridor(texto, localidad, provincia)
+        ])
+
+    @app.get("/api/direccion")
+    def direccion():
+        """Nombre de la calle de un punto (para cuando se usa el GPS o se toca el mapa)."""
+        try:
+            latitud = float(request.args["lat"])
+            longitud = float(request.args["lon"])
+        except (KeyError, ValueError):
+            return jsonify(error="Faltan lat y lon numéricos"), 400
+        try:
+            nombre = describidor(latitud, longitud)
+        except (requests.RequestException, ValueError, KeyError):
+            nombre = None
+        return jsonify(nombre=nombre)
 
     @app.get("/api/estaciones")
     def estaciones():
@@ -199,6 +237,7 @@ def crear_app(precios=None, fecha_consulta=None, ruteador_factory=RuteadorOSRM, 
             aviso_datos=precios.aviso,
             estaciones=[{
                 "nombre": p.estacion.nombre,
+                "bandera": p.estacion.bandera,
                 "direccion": p.estacion.direccion,
                 "latitud": p.estacion.latitud,
                 "longitud": p.estacion.longitud,

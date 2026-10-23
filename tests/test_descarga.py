@@ -1,3 +1,4 @@
+import logging
 import os
 import shutil
 import tempfile
@@ -69,6 +70,11 @@ class TestDescarga(ConCarpetaTemporal):
 
 
 class TestPreciosDeLaWeb(ConCarpetaTemporal):
+    def setUp(self):
+        super().setUp()
+        # Las fallas de descarga se registran en el log; acá son a propósito.
+        logging.disable(logging.WARNING)
+        self.addCleanup(logging.disable, logging.NOTSET)
     def precios(self, descargador):
         return Precios(self.destino, "ROSARIO", "SANTA FE", descargar=True, descargador=descargador)
 

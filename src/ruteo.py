@@ -1,4 +1,4 @@
-"""Distancias en auto (OSRM) y ubicación de direcciones (Nominatim).
+"""Distancias en auto: OSRM, o línea recta si no responde.
 
 Si OSRM no responde se estima en línea recta, y el resultado queda marcado
 como estimación para que la app lo avise.
@@ -12,10 +12,7 @@ from dataclasses import dataclass
 import requests
 
 from src.config import (
-    CENTROS_CIUDAD,
     FACTOR_RODEO,
-    MARGEN_BUSQUEDA_GRADOS,
-    URL_NOMINATIM,
     URL_OSRM,
     USER_AGENT,
     VELOCIDAD_PROMEDIO_KMH,
@@ -148,39 +145,3 @@ class RuteadorOSRM(Ruteador):
             tramos.append(Tramo(km, minutos))
         return tramos
 
-
-def ubicar(texto, localidad="ROSARIO", provincia="SANTA FE", cliente=requests):
-    """Pasa 'lat,lon' o una dirección a (lat, lon).
-
-    Las direcciones se buscan con Nominatim agregando la ciudad, porque el
-    chofer escribe 'Oroño 1500' y no la dirección completa. Si se conoce el
-    centro de la ciudad, la búsqueda se limita a sus alrededores.
-    """
-    coincidencia = PATRON_COORDENADAS.match(texto)
-    if coincidencia:
-        latitud, longitud = float(coincidencia.group(1)), float(coincidencia.group(2))
-        if not (-90 <= latitud <= 90 and -180 <= longitud <= 180):
-            raise ErrorRuteo(f"Coordenadas fuera de rango: {texto}")
-        return latitud, longitud
-
-    parametros = {"q": f"{texto}, {localidad}, {provincia}, Argentina", "format": "jsonv2", "limit": 1}
-    centro = CENTROS_CIUDAD.get((localidad.upper(), provincia.upper()))
-    if centro:
-        lat, lon, margen = *centro, MARGEN_BUSQUEDA_GRADOS
-        parametros["viewbox"] = f"{lon - margen},{lat + margen},{lon + margen},{lat - margen}"
-        parametros["bounded"] = 1
-
-    try:
-        respuesta = cliente.get(
-            f"{URL_NOMINATIM}/search",
-            params=parametros,
-            headers={"User-Agent": USER_AGENT},
-            timeout=10,
-        )
-        respuesta.raise_for_status()
-        resultados = respuesta.json()
-    except (requests.RequestException, ValueError) as error:
-        raise ErrorRuteo(f"No se pudo buscar la dirección '{texto}': {error}") from error
-    if not resultados:
-        raise ErrorRuteo(f"No se encontró la dirección '{texto}' en {localidad.title()}")
-    return float(resultados[0]["lat"]), float(resultados[0]["lon"])

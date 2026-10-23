@@ -2,81 +2,119 @@
 <html lang="es-AR">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#0f766e">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0b5d4b">
   <title>Nafteando</title>
-  <meta name="description" content="¿Vale la pena desviarme para cargar más barato? Ahorro neto real con precios oficiales.">
+  <meta name="description" content="¿Vale la pena desviarme para cargar más barato? Ahorro neto real con los precios oficiales de cada estación.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
   <link rel="stylesheet" href="{{ url_for('static', filename='estilos.css') }}">
 </head>
 <body>
-  <header class="encabezado">
-    <h1>Nafteando</h1>
-    <p>¿Vale la pena desviarme para cargar más barato?</p>
+  <header class="barra">
+    <div class="marca">
+      <svg class="logo" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.5c-.4 0-.8.2-1 .6C9.3 6 5.5 11.3 5.5 15a6.5 6.5 0 0 0 13 0c0-3.7-3.8-9-5.5-11.9-.2-.4-.6-.6-1-.6Z"/></svg>
+      <div>
+        <strong>Nafteando</strong>
+        <span>{{ ciudad }}</span>
+      </div>
+    </div>
+    <span id="estado-datos" class="chip-datos" hidden></span>
   </header>
 
-  <main>
-    <form id="formulario" class="tarjeta" autocomplete="off">
-      <div class="modos" role="radiogroup" aria-label="Modo">
-        <label><input type="radio" name="modo" value="cerca" checked> Cerca mío</label>
-        <label><input type="radio" name="modo" value="destino"> Tengo destino</label>
-      </div>
+  <div class="disposicion">
+    <section class="contenedor-mapa">
+      <div id="mapa" aria-label="Mapa de estaciones con sus precios"></div>
+      <p id="pista-mapa" class="pista">Tocá el mapa para marcar la <b>salida</b></p>
+      <button type="button" id="ubicarme-mapa" class="boton-mapa" aria-label="Usar mi ubicación">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3.2"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/><circle cx="12" cy="12" r="7" fill="none"/></svg>
+      </button>
+    </section>
 
-      <label class="campo">
-        <span>Desde</span>
-        <div class="con-boton">
-          <input id="desde" name="desde" placeholder="Oroño 1500 o tu ubicación" required>
-          <button type="button" id="ubicacion" class="secundario" title="Usar mi ubicación">Mi ubicación</button>
+    <div class="panel">
+      <form id="formulario" class="hoja" autocomplete="off" novalidate>
+        <h1>¿Vale la pena desviarme para cargar más barato?</h1>
+
+        <div class="segmentos" role="radiogroup" aria-label="Modo">
+          <label><input type="radio" name="modo" value="cerca" checked><span>Cerca mío</span></label>
+          <label><input type="radio" name="modo" value="destino"><span>Tengo destino</span></label>
         </div>
-      </label>
 
-      <label class="campo" id="campo-hasta" hidden>
-        <span>Hasta</span>
-        <input id="hasta" name="hasta" placeholder="Pellegrini 3000">
-      </label>
+        <div class="campo-lugar" data-campo="desde">
+          <span class="punto punto-salida" aria-hidden="true"></span>
+          <div class="entrada">
+            <label for="desde">Salida</label>
+            <input id="desde" placeholder="Calle y altura, o una esquina" enterkeyhint="search">
+            <ul class="sugerencias" role="listbox" hidden></ul>
+          </div>
+          <button type="button" id="ubicarme" class="boton-icono" aria-label="Usar mi ubicación">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3.2"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/><circle cx="12" cy="12" r="7" fill="none"/></svg>
+          </button>
+        </div>
 
-      <label class="campo">
-        <span>Combustible</span>
-        <select id="producto" name="producto">
-          {% for valor, etiqueta in productos.items() %}
-          <option value="{{ valor }}">{{ etiqueta }}</option>
-          {% endfor %}
-        </select>
-      </label>
+        <div class="campo-lugar" data-campo="hasta" id="campo-hasta" hidden>
+          <span class="punto punto-destino" aria-hidden="true"></span>
+          <div class="entrada">
+            <label for="hasta">Destino</label>
+            <input id="hasta" placeholder="Calle y altura, o una esquina" enterkeyhint="search">
+            <ul class="sugerencias" role="listbox" hidden></ul>
+          </div>
+        </div>
+        <p id="error-lugar" class="error-campo" hidden></p>
 
-      <div class="fila">
-        <label class="campo">
-          <span>Litros a cargar</span>
-          <input id="litros" name="litros" type="number" inputmode="decimal" min="1" step="any" value="30">
-        </label>
-        <label class="campo">
-          <span>Km por litro</span>
-          <input id="consumo" name="consumo" type="number" inputmode="decimal" min="1" step="any" value="12">
-        </label>
-      </div>
+        <fieldset class="grupo">
+          <legend>Combustible</legend>
+          <div class="chips">
+            {% for valor, etiqueta in productos.items() %}
+            <label class="chip"><input type="radio" name="producto" value="{{ valor }}" {% if loop.first %}checked{% endif %}><span>{{ etiqueta }}</span></label>
+            {% endfor %}
+          </div>
+        </fieldset>
 
-      <details>
-        <summary>Contar mi tiempo</summary>
-        <label class="campo">
-          <span>¿Cuánto vale tu hora? ($)</span>
-          <input id="valor_hora" name="valor_hora" type="number" inputmode="decimal" min="0" step="any" placeholder="0">
-        </label>
-      </details>
+        <div class="pasos">
+          <div class="paso">
+            <label for="litros">Litros a cargar</label>
+            <div class="control-paso">
+              <button type="button" data-paso="litros" data-delta="-5" aria-label="Menos litros">−</button>
+              <input id="litros" type="number" inputmode="decimal" min="1" step="any" value="30">
+              <button type="button" data-paso="litros" data-delta="5" aria-label="Más litros">+</button>
+            </div>
+          </div>
+          <div class="paso">
+            <label for="consumo">Km por litro</label>
+            <div class="control-paso">
+              <button type="button" data-paso="consumo" data-delta="-1" aria-label="Menos km por litro">−</button>
+              <input id="consumo" type="number" inputmode="decimal" min="1" step="any" value="12">
+              <button type="button" data-paso="consumo" data-delta="1" aria-label="Más km por litro">+</button>
+            </div>
+          </div>
+        </div>
 
-      <button type="submit" id="buscar" class="principal">¿Dónde cargo?</button>
-    </form>
+        <details class="tiempo">
+          <summary>Contar también mi tiempo</summary>
+          <label for="valor_hora">¿Cuánto vale tu hora de trabajo?</label>
+          <div class="con-prefijo"><span>$</span><input id="valor_hora" type="number" inputmode="decimal" min="0" step="any" placeholder="0"></div>
+        </details>
 
-    <section id="resultado" class="tarjeta" hidden aria-live="polite"></section>
+        <button type="submit" id="buscar" class="principal">
+          <span class="texto-boton">¿Dónde cargo?</span>
+        </button>
+      </form>
 
-    <div id="mapa" class="tarjeta mapa" aria-label="Mapa de estaciones"></div>
-  </main>
+      <section id="resultado" aria-live="polite" hidden></section>
 
-  <footer class="pie">
-    Precios: Secretaría de Energía, Resolución 314/2016 (CC-BY 4.0), informados por cada estación.
-    Rutas: OSRM. Mapa: © colaboradores de OpenStreetMap. Ciudad: {{ ciudad }}.
-    No incluye descuentos por app ni tarjeta.
-  </footer>
+      <footer class="pie">
+        Precios: Secretaría de Energía, Res. 314/2016 (CC-BY 4.0), informados por cada estación.
+        Rutas: OSRM. Direcciones: Georef y OpenStreetMap. No incluye descuentos por app ni tarjeta.
+      </footer>
+    </div>
+  </div>
 
+  <div id="aviso-flotante" class="aviso-flotante" role="status" hidden></div>
+
+  <script>window.CENTRO = [{{ centro[0] }}, {{ centro[1] }}];</script>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="{{ url_for('static', filename='app.js') }}"></script>
 </body>

@@ -125,7 +125,8 @@ tp2-bonadeo/
 │   ├── modelos.py           clases del dominio (Estacion, PrecioEstacion,
 │   │                        Recorrido, OpcionCarga, RecomendacionCarga)
 │   ├── pipeline.py          validación, limpieza y precio vigente
-│   ├── ruteo.py             distancias (OSRM o línea recta) y direcciones
+│   ├── ruteo.py             distancias (OSRM o línea recta)
+│   ├── direcciones.py       direcciones a coordenadas y al revés
 │   ├── recomendador.py      desvío y ahorro neto
 │   ├── main.py              comandos de consola
 │   ├── descarga.py          descarga del archivo oficial
@@ -140,7 +141,8 @@ tp2-bonadeo/
 │   ├── test_vigentes.py
 │   ├── test_recomendador.py
 │   ├── test_web.py
-│   └── test_descarga.py
+│   ├── test_descarga.py
+│   └── test_direcciones.py
 ├── requirements.txt
 ├── vercel.json
 └── README.md
@@ -291,13 +293,27 @@ y abrir http://127.0.0.1:5000 en el navegador (en el celular, con las
 herramientas de desarrollador en modo móvil, o desde la misma red con
 `--host 0.0.0.0`).
 
-La página está pensada para el celular: el chofer elige "Cerca mío" o
-"Tengo destino", toca **Mi ubicación** para usar el GPS del teléfono, elige
-el combustible y toca **¿Dónde cargo?**. Arriba aparece el veredicto
-("Andá a ...: ahorrás $N" o "No te desvíes"), la cuenta desglosada y un
-botón **Cómo llegar** que abre la navegación. Abajo, el mapa con la salida,
-el destino, la referencia (naranja) y la estación que conviene (verde).
-Litros, consumo y valor de la hora se recuerdan en el navegador.
+La página está pensada para el celular. Arriba hay un mapa con el precio
+de cada estación (la más barata en verde) y abajo el formulario:
+
+- **Salida y destino** se pueden poner de tres formas: escribiendo (la
+  lista de sugerencias aparece mientras se escribe, con alturas y esquinas
+  como "Mendoza y Oroño"), con el botón de **ubicación** que usa el GPS del
+  teléfono, o **tocando el mapa**. Los pines se pueden arrastrar para
+  corregir el punto, y la app pone el nombre de la calle sola.
+- "Cerca mío" o "Tengo destino", el combustible, los litros y los km por
+  litro (con botones + y −), y opcionalmente el valor de la hora.
+- Con **¿Dónde cargo?** aparece el veredicto en grande ("Conviene
+  desviarte · ahorrás $1.049" o "No te conviene desviarte"), la cuenta
+  desglosada, el botón **Cómo llegar** (abre Google Maps con la parada en la
+  estación) y la lista de todas las opciones. En el mapa quedan marcadas
+  la referencia (naranja) y la que conviene (verde).
+
+Las estaciones se muestran por bandera y dirección ("Puma · Pueyrredon
+1089"), que es como las reconoce un chofer, y no por la razón social. El
+combustible, los litros, el consumo y el valor de la hora se recuerdan en el
+navegador. Funciona en modo claro y oscuro, y en pantallas grandes el mapa
+pasa a la derecha.
 
 La web no repite lógica: `src/web.py` lee los parámetros, llama a las
 mismas funciones que la consola y devuelve JSON.
@@ -307,6 +323,8 @@ mismas funciones que la consola y devuelve JSON.
 | `GET /` | La página |
 | `GET /api/estaciones?producto=super` | Precios vigentes del producto en la franja actual, para el mapa |
 | `GET /api/recomendar?desde=...&hasta=...&producto=...&litros=...&consumo=...&valor_hora=...` | La recomendación; 400 con el motivo si un dato está mal, 404 si no hay estaciones cerca |
+| `GET /api/sugerencias?q=oroño 15` | Hasta 5 direcciones de la ciudad que coinciden con lo escrito |
+| `GET /api/direccion?lat=...&lon=...` | El nombre de la calle de un punto (GPS o mapa) |
 
 Variables de entorno opcionales:
 
@@ -344,14 +362,34 @@ sus precios quedarían vencidos y no mostraría ninguna estación.
 
 Supuestos: la franja nocturna va de 22 a 6 (el dataset no lo dice) y el
 costo del desvío se calcula con el precio de la estación a la que se va.
-Las direcciones se buscan con Nominatim dentro de un recuadro alrededor de
-la ciudad.
 
 Todas las estaciones se resuelven con una sola consulta al servicio
 `table` de OSRM (las distancias desde el origen y desde cada estación
 hasta cada estación y el destino), en lugar de una consulta por estación.
 Con 9 estaciones bajó de unos 16 segundos a 3, que es lo que importa para
 alguien que está manejando.
+
+## Direcciones de Rosario
+
+Nominatim (OpenStreetMap) no conoce las alturas de muchas calles de
+Rosario: "Córdoba 1500" o "Av. Alberdi 1100" caían en Funes o Roldán, o en
+cualquier punto de la calle. Por eso `src/direcciones.py` prueba en orden:
+
+1. **Georef**, el normalizador de direcciones del Estado nacional
+   (apis.datos.gob.ar). Conoce las alturas y las esquinas ("Mendoza y
+   Oroño"), pero guarda las calles sin tildes ni ñ y no entiende
+   abreviaturas como "Pte." o "esq.", así que antes se normaliza el texto:
+   "Bv. Oroño 1.500" pasa a "bv orono 1500" y "Pte. Perón" a "presidente
+   peron".
+2. **Nominatim**, limitado a un recuadro de unos 13 km alrededor del centro
+   de la ciudad, para lo que Georef no encuentra.
+
+Para las sugerencias mientras se escribe se consultan a la vez Georef y
+**Photon** (otro buscador sobre OpenStreetMap; Nominatim no permite usarse
+para autocompletar). Photon devuelve resultados que no tienen nada que ver
+("Autopista Ernesto Guevara" al escribir "cordoba"), así que se descartan
+los que no contienen todas las palabras escritas. Si un servicio falla, se
+sigue con los demás.
 
 ## Interpretación
 
@@ -387,8 +425,12 @@ alguien que está manejando.
   corresponden a su dirección y no siempre se detectan.
 - **La web publicada no tiene precios del día**: el servidor oficial no
   responde desde Vercel (ver [Deploy](#deploy-en-vercel)).
-- **Servicios públicos de OSRM y Nominatim**: son gratuitos y con uso
-  limitado; para mucho tráfico habría que tener servidores propios.
+- **Servicios públicos de OSRM, Georef, Nominatim y Photon**: son
+  gratuitos y con uso limitado; para mucho tráfico habría que tener
+  servidores propios.
+- **Direcciones**: alguna calle puede no estar en Georef ni en
+  OpenStreetMap con su altura; en ese caso conviene elegir de las
+  sugerencias, tocar el mapa o arrastrar el pin.
 
 Más detalle sobre los datos en [data/README.md](data/README.md).
 
@@ -398,8 +440,8 @@ Más detalle sobre los datos en [data/README.md](data/README.md).
 python -m unittest discover -s tests -v
 ```
 
-97 pruebas, ninguna necesita internet: OSRM, Nominatim y la descarga se
-reemplazan por clientes falsos. Cubren casos normales, entradas inválidas
+111 pruebas, ninguna necesita internet: OSRM, Georef, Nominatim, Photon y
+la descarga se reemplazan por clientes falsos. Cubren casos normales, entradas inválidas
 (archivos rotos, CUIT y fechas mal escritos, parámetros sin sentido) y
 propiedades del resultado: leer CSV o JSON da lo mismo, ninguna fila se
 pierde en la limpieza, una estación sobre el recorrido tiene desvío 0, con

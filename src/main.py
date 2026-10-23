@@ -26,7 +26,8 @@ from src.pipeline import (
     resumen_motivos,
 )
 from src.recomendador import SinEstaciones, franja_para, recomendar
-from src.ruteo import ErrorRuteo, RuteadorLineaRecta, RuteadorOSRM, ubicar
+from src.direcciones import ubicar
+from src.ruteo import ErrorRuteo, RuteadorLineaRecta, RuteadorOSRM
 
 CAMPOS_VIGENTES = [
     "idempresa", "empresa", "bandera", "direccion", "latitud", "longitud",

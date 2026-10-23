@@ -96,12 +96,20 @@ La descarga completa se hace con `python -m src.main actualizar` y queda en
 Para la distancia y la duración del desvío se usa el servidor público de
 [OSRM](https://project-osrm.org/) sobre datos de OpenStreetMap (licencia
 ODbL, © colaboradores de OpenStreetMap). No necesita clave. Si no responde,
-la app estima en línea recta y marca el resultado como estimación. Para
-pasar direcciones a coordenadas se usa Nominatim, también de OpenStreetMap,
-limitando la búsqueda a los alrededores de la ciudad. Los dos servidores
-públicos piden un uso moderado (Nominatim, como máximo una consulta por
-segundo) y que la aplicación se identifique; la app manda un User-Agent
-propio.
+la app estima en línea recta y marca el resultado como estimación.
+
+## Direcciones: Georef, Nominatim y Photon
+
+Para pasar direcciones a coordenadas se usa primero
+[Georef](https://apis.datos.gob.ar/georef), la API de normalización de
+direcciones del Estado nacional, y si no encuentra, Nominatim (OpenStreetMap,
+ODbL), limitado a los alrededores de la ciudad. Las sugerencias mientras se
+escribe suman [Photon](https://photon.komoot.io), de Komoot, también sobre
+datos de OpenStreetMap. Nominatim también da el nombre de la calle de un
+punto tocado en el mapa. Son servicios públicos que piden un uso moderado
+(Nominatim, como máximo una consulta por segundo, y no permite
+autocompletar) y que la aplicación se identifique; la app manda un
+User-Agent propio.
 
 ## Limitaciones y sesgos
 

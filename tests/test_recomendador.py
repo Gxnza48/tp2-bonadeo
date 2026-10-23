@@ -11,7 +11,7 @@ from src.recomendador import (
     franja_para,
     recomendar,
 )
-from src.ruteo import ErrorRuteo, RuteadorLineaRecta, RuteadorOSRM, Tramo, distancia_km, ubicar
+from src.ruteo import RuteadorLineaRecta, RuteadorOSRM, Tramo, distancia_km
 
 # Origen y destino sobre el mismo meridiano: la línea recta entre los dos
 # es exacta, así que una estación en el medio queda justo sobre el recorrido.
@@ -223,29 +223,6 @@ class TestOSRM(unittest.TestCase):
 
     def test_restar_tramos(self):
         self.assertEqual(Tramo(5, 10) - Tramo(3, 4, estimado=True), Tramo(2, 6, estimado=True))
-
-
-class TestUbicar(unittest.TestCase):
-    def test_coordenadas_escritas(self):
-        self.assertEqual(ubicar("-32.95124, -60.65287"), (-32.95124, -60.65287))
-
-    def test_coordenadas_fuera_de_rango(self):
-        with self.assertRaises(ErrorRuteo):
-            ubicar("-132.9, -60.6")
-
-    def test_direccion_encontrada(self):
-        cliente = ClienteFalso([{"lat": "-32.9498938", "lon": "-60.6556917"}])
-        self.assertEqual(ubicar("Oroño 1500", cliente=cliente), (-32.9498938, -60.6556917))
-
-    def test_la_busqueda_se_limita_a_la_ciudad(self):
-        cliente = ClienteFalso([{"lat": "-32.9453", "lon": "-60.6444"}])
-        ubicar("Córdoba 1500", cliente=cliente)
-        self.assertEqual(cliente.ultimos_parametros["bounded"], 1)
-        self.assertIn("viewbox", cliente.ultimos_parametros)
-
-    def test_direccion_no_encontrada(self):
-        with self.assertRaisesRegex(ErrorRuteo, "No se encontró"):
-            ubicar("Calle que no existe 99999", cliente=ClienteFalso([]))
 
 
 if __name__ == "__main__":

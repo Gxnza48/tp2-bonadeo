@@ -2,6 +2,7 @@ import unittest
 from datetime import datetime
 
 from src.config import DIR_MUESTRA
+from src.direcciones import Lugar
 from src.ruteo import ErrorRuteo, RuteadorLineaRecta
 from src.web import Precios, crear_app
 
@@ -24,6 +25,11 @@ class TestWeb(unittest.TestCase):
             fecha_consulta=datetime(2026, 10, 22, 12, 0, 0),
             ruteador_factory=lambda: RuteadorLineaRecta(),
             ubicador=ubicador_falso,
+            sugeridor=lambda texto, localidad, provincia: [
+                Lugar(nombre, *coordenadas) for nombre, coordenadas in LUGARES.items()
+                if texto.lower() in nombre.lower()
+            ],
+            describidor=lambda latitud, longitud: "Oroño 1500",
         )
         self.cliente = app.test_client()
 
@@ -67,6 +73,15 @@ class TestWeb(unittest.TestCase):
                 respuesta = self.cliente.get(url)
                 self.assertEqual(respuesta.status_code, 400)
                 self.assertIn(mensaje, respuesta.get_json()["error"])
+
+    def test_sugerencias(self):
+        datos = self.cliente.get("/api/sugerencias?q=oroño").get_json()
+        self.assertEqual(datos["sugerencias"], [{"nombre": "Oroño 1500", "latitud": -32.95124, "longitud": -60.65287}])
+        self.assertEqual(self.cliente.get("/api/sugerencias?q=or").get_json()["sugerencias"], [])
+
+    def test_direccion_de_un_punto(self):
+        self.assertEqual(self.cliente.get("/api/direccion?lat=-32.95&lon=-60.65").get_json()["nombre"], "Oroño 1500")
+        self.assertEqual(self.cliente.get("/api/direccion?lat=abc").status_code, 400)
 
     def test_sin_estaciones_da_404(self):
         respuesta = self.cliente.get("/api/recomendar?desde=Oroño 1500&producto=gnc&franja=Nocturno")
