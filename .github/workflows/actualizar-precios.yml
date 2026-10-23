@@ -1,0 +1,35 @@
+# Baja el archivo oficial de precios vigentes y lo publica como adjunto del
+# release "datos" del repositorio, de donde lo lee la web en Vercel. El
+# servidor de la Secretaría de Energía no acepta conexiones desde Vercel,
+# por eso la descarga se hace acá.
+name: Actualizar precios
+
+on:
+  schedule:
+    - cron: "17 */3 * * *"   # cada 3 horas
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  actualizar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt
+      - name: Descargar precios vigentes
+        run: python -m src.main actualizar --destino precios_vigentes.csv
+      - name: Publicar en el release "datos"
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if ! gh release view datos > /dev/null 2>&1; then
+            gh release create datos --title "Precios vigentes" --latest=false \
+              --notes "Archivo de precios vigentes de la Secretaría de Energía (Res. 314/2016, CC-BY 4.0), actualizado automáticamente cada 3 horas."
+          fi
+          gh release upload datos precios_vigentes.csv --clobber
