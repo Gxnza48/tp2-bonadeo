@@ -33,6 +33,9 @@ URL_PRECIOS_VIGENTES = (
     "precios-en-surtidor-resolucin-3142016.csv"
 )
 ARCHIVO_VIGENTES = DIR_CRUDOS / "precios_vigentes.csv"
+# Copia que publica el workflow de GitHub (ver .github/workflows): la web
+# en Vercel la lee de acá, porque al servidor oficial no puede llegar.
+URL_PRECIOS_PUBLICADOS = "https://github.com/Gxnza48/tp2-bonadeo/releases/download/datos/precios_vigentes.csv"
 # El dataset se actualiza cada hora; la web no lo vuelve a bajar antes.
 MINUTOS_ENTRE_DESCARGAS = 60
 
@@ -48,6 +51,10 @@ DIAS_MAXIMOS_VIGENCIA = 60
 # Un precio se considera fuera de rango si se aleja de la mediana de su
 # producto más allá de estos factores. Solo se aplica si hay suficientes
 # precios del producto como para que la mediana diga algo.
+# La web estima el precio de las estaciones que no actualizan con la
+# mediana de su bandera a menos de esta distancia (o de su provincia).
+RADIO_ESTIMACION_KM = 50
+
 FACTOR_MINIMO_PRECIO = 0.5
 FACTOR_MAXIMO_PRECIO = 1.5
 MINIMO_PARA_MEDIANA = 5

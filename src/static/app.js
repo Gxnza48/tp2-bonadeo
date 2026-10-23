@@ -20,11 +20,8 @@ function escapar(texto) {
   return div.innerHTML;
 }
 
-// "SHELL C.A.P.S.A." -> "Shell", "YPF" queda igual.
 function bandera(e) {
-  const nombre = (e.bandera || "").replace(/\s+(C\.A\.P\.S\.A\.|S\.A\.U?\.?)$/i, "").trim();
-  if (!nombre) return "Estación";
-  return nombre.length <= 3 ? nombre : nombre.charAt(0) + nombre.slice(1).toLowerCase();
+  return e.bandera_corta || "Estación";
 }
 
 // "AV. CARLOS COLOMBRES 1552" -> "Av. Carlos Colombres 1552"
@@ -48,9 +45,38 @@ function modo() {
   return formulario.querySelector("input[name=modo]:checked").value;
 }
 
-function producto() {
-  return formulario.querySelector("input[name=producto]:checked").value;
+function elegido(nombre) {
+  return formulario.querySelector(`input[name=${nombre}]:checked`).value;
 }
+
+// Nafta / Gasoil / GNC + común o premium -> el producto que usa el servidor.
+function producto() {
+  const tipo = elegido("tipo");
+  const premium = elegido("calidad") === "premium";
+  if (tipo === "gnc") return "gnc";
+  if (tipo === "nafta") return premium ? "premium" : "super";
+  return premium ? "gasoil premium" : "gasoil";
+}
+
+function franja() {
+  return elegido("franja");
+}
+
+// Igual que el servidor: de 22 a 6 rige el precio nocturno.
+function franjaPorHora() {
+  const hora = new Date().getHours();
+  return hora >= 22 || hora < 6 ? "Nocturno" : "Diurno";
+}
+
+function marcar(nombre, valor) {
+  const opcion = formulario.querySelector(`input[name=${nombre}][value="${valor}"]`);
+  if (opcion) opcion.checked = true;
+}
+
+const NOMBRES_PRODUCTO = {
+  super: "Nafta súper", premium: "Nafta premium", gasoil: "Gasoil",
+  "gasoil premium": "Gasoil premium", gnc: "GNC",
+};
 
 // --- Preferencias del chofer: se recuerdan en este navegador ---
 
@@ -60,16 +86,15 @@ function leerPreferencias() {
     for (const campo of CAMPOS_GUARDADOS) {
       if (guardado[campo] !== undefined) $(campo).value = guardado[campo];
     }
-    if (guardado.producto) {
-      const opcion = formulario.querySelector(`input[name=producto][value="${guardado.producto}"]`);
-      if (opcion) opcion.checked = true;
-    }
+    if (guardado.tipo) marcar("tipo", guardado.tipo);
+    if (guardado.calidad) marcar("calidad", guardado.calidad);
+    $("estimados").checked = Boolean(guardado.estimados);
   } catch (e) { /* sin almacenamiento: valores por defecto */ }
 }
 
 function guardarPreferencias() {
   try {
-    const datos = { producto: producto() };
+    const datos = { tipo: elegido("tipo"), calidad: elegido("calidad"), estimados: $("estimados").checked };
     for (const campo of CAMPOS_GUARDADOS) datos[campo] = $(campo).value;
     localStorage.setItem("nafteando", JSON.stringify(datos));
   } catch (e) { /* no pasa nada si no se puede guardar */ }
@@ -88,44 +113,128 @@ const capaEstaciones = L.layerGroup().addTo(mapa);
 new ResizeObserver(() => mapa.invalidateSize()).observe($("mapa"));
 const pines = { desde: null, hasta: null };
 
-function iconoPrecio(precio, clase = "") {
+function precioCorto(e) {
+  return (e.estimado ? "≈" : "") + pesos.format(e.precio);
+}
+
+// Las estimadas son un punto hasta que se acerca el mapa; si no, con 80
+// etiquetas no se lee nada.
+const ZOOM_DETALLE = 15;
+
+function iconoPrecio(e, clase = "") {
+  if (e.estimado && !clase && mapa.getZoom() < ZOOM_DETALLE) {
+    return L.divIcon({ className: "", html: '<span class="punto-estimado"></span>', iconSize: [10, 10], iconAnchor: [5, 5] });
+  }
   return L.divIcon({
     className: "",
-    html: `<span class="precio-mapa ${clase}">${pesos.format(precio)}</span>`,
+    html: `<span class="precio-mapa ${e.estimado ? "estimada" : ""} ${clase}">${precioCorto(e)}</span>`,
     iconSize: [0, 0],
   });
 }
 
+function fecha(texto) {
+  // "2026-10-23 06:00:00" -> fecha local
+  return new Date(texto.replace(" ", "T"));
+}
+
+function cuando(texto) {
+  const d = fecha(texto);
+  const hoy = new Date();
+  const ayer = new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate() - 1);
+  const hora = d.toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
+  if (d.toDateString() === hoy.toDateString()) return `hoy ${hora}`;
+  if (d.toDateString() === ayer.toDateString()) return `ayer ${hora}`;
+  return `el ${d.toLocaleDateString("es-AR", { day: "2-digit", month: "2-digit", year: "numeric" })}`;
+}
+
+function explicacionEstimado(e) {
+  return `Precio estimado ${escapar(e.base_estimacion)}. Esta estación informó ${pesosExactos.format(e.precio_informado)} por última vez ${cuando(e.vigente_desde)}.`;
+}
+
 function textoEstacion(e) {
-  return `<strong>${escapar(titulo(e))}</strong><br>${escapar(capitalizar(e.nombre.replace(/\s*\(.*\)$/, "")))}<br>${pesosExactos.format(e.precio)} por litro`;
+  const razon = escapar(capitalizar(e.nombre.replace(/\s*\(.*\)$/, "")));
+  const precio = e.estimado
+    ? `≈ ${pesosExactos.format(e.precio)} por litro<br><small>${explicacionEstimado(e)}</small>`
+    : `${pesosExactos.format(e.precio)} por litro<br><small>Informado ${cuando(e.vigente_desde)}</small>`;
+  return `<strong>${escapar(titulo(e))}</strong><br>${razon}<br>${precio}`;
 }
 
 function dibujarEstaciones(estaciones, clases = {}) {
+  estacionesActuales = estaciones;
+  clasesActuales = clases;
   capaEstaciones.clearLayers();
-  const minimo = Math.min(...estaciones.map((e) => e.precio));
+  const informados = estaciones.filter((e) => !e.estimado).map((e) => e.precio);
+  const minimo = informados.length ? Math.min(...informados) : null;
+  const resaltando = Object.keys(clases).length > 0;
   for (const e of estaciones) {
     const clave = `${e.latitud},${e.longitud}`;
-    const clase = clases[clave] ?? (Object.keys(clases).length ? "apagada" : e.precio === minimo ? "barata" : "");
-    L.marker([e.latitud, e.longitud], { icon: iconoPrecio(e.precio, clase), zIndexOffset: clase === "mejor" ? 1000 : 0 })
+    const clase = clases[clave] ?? (resaltando ? "apagada" : !e.estimado && e.precio === minimo ? "barata" : "");
+    const prioridad = clase === "mejor" ? 1000 : e.estimado ? 0 : 100;
+    L.marker([e.latitud, e.longitud], { icon: iconoPrecio(e, clase), zIndexOffset: prioridad })
       .bindPopup(textoEstacion(e))
       .addTo(capaEstaciones);
   }
 }
 
+let estacionesActuales = [];
+let clasesActuales = {};
+mapa.on("zoomend", () => dibujarEstaciones(estacionesActuales, clasesActuales));
+
 async function mostrarEstaciones() {
+  const parametros = new URLSearchParams({ producto: producto(), franja: franja() });
   try {
-    const respuesta = await fetch(`/api/estaciones?producto=${encodeURIComponent(producto())}`);
+    const respuesta = await fetch(`/api/estaciones?${parametros}`);
     const datos = await respuesta.json();
-    dibujarEstaciones(datos.estaciones || []);
-    mostrarEstadoDatos(datos.aviso_datos);
+    const primeraVez = !estacionesActuales.length;
+    estacionesActuales = datos.estaciones || [];
+    dibujarEstaciones(estacionesActuales);
+    // La primera vez se encuadran las estaciones con precio informado.
+    const informadas = estacionesActuales.filter((e) => !e.estimado);
+    if (primeraVez && informadas.length && !puntos.desde) {
+      mapa.fitBounds(informadas.map((e) => [e.latitud, e.longitud]), { padding: [30, 30], maxZoom: 14 });
+    }
+    mostrarEstadoDatos(datos);
+    mostrarRanking(estacionesActuales);
   } catch (e) { /* el mapa queda sin precios */ }
 }
 
-function mostrarEstadoDatos(aviso) {
+function mostrarEstadoDatos(datos) {
   const chip = $("estado-datos");
-  const fecha = aviso && aviso.match(/\d{2}\/\d{2}\/\d{4}/);
-  chip.hidden = !fecha;
-  if (fecha) chip.textContent = `Precios al ${fecha[0]}`;
+  chip.textContent = "";
+  if (datos.muestra) {
+    const dia = datos.aviso_datos && datos.aviso_datos.match(/\d{2}\/\d{2}\/\d{4}/);
+    chip.textContent = dia ? `Precios al ${dia[0]}` : "Precios de muestra";
+  } else if (datos.ultimo_informe) {
+    chip.textContent = `Último precio: ${cuando(datos.ultimo_informe)}`;
+  }
+  chip.hidden = !chip.textContent;
+}
+
+function mostrarRanking(estaciones) {
+  const informadas = estaciones.filter((e) => !e.estimado).length;
+  $("titulo-lista").textContent = `${NOMBRES_PRODUCTO[producto()]}: ${estaciones.length} estaciones`;
+  $("explicacion-lista").textContent =
+    `${informadas} con precio informado y ${estaciones.length - informadas} estimadas (≈), horario ${franja().toLowerCase()}. Tocá una para verla en el mapa.`;
+  const lista = $("ranking");
+  lista.innerHTML = "";
+  for (const e of [...estaciones].sort((a, b) => a.precio - b.precio)) {
+    const li = document.createElement("li");
+    li.className = e.estimado ? "estimada" : "";
+    const detalle = e.estimado ? `estimado ${e.base_estimacion}` : `informado ${cuando(e.vigente_desde)}`;
+    li.innerHTML = `
+      <span class="nombre">${escapar(titulo(e))}</span>
+      <span class="precio">${precioCorto(e)}</span>
+      <span class="detalle">${escapar(detalle)}</span>`;
+    li.addEventListener("click", () => {
+      mapa.setView([e.latitud, e.longitud], 16);
+      capaEstaciones.eachLayer((marcador) => {
+        const { lat, lng } = marcador.getLatLng();
+        if (lat === e.latitud && lng === e.longitud) marcador.openPopup();
+      });
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    });
+    lista.appendChild(li);
+  }
 }
 
 function ponerPin(campo) {
@@ -354,7 +463,7 @@ function mostrarRecomendacion(rec) {
       <article class="tarjeta veredicto">
         <p class="etiqueta">Conviene desviarte · ahorrás</p>
         <p class="monto">${pesos.format(mejor.ahorro_neto)}</p>
-        <p class="lugar">${escapar(titulo(mejor))}<small>${pesosExactos.format(mejor.precio)}/L · +${km.format(mejor.km_desvio)} km de desvío</small></p>
+        <p class="lugar">${escapar(titulo(mejor))}${mejor.estimado ? '<span class="marca-estimado">precio estimado</span>' : ""}<small>${mejor.estimado ? "≈ " : ""}${pesosExactos.format(mejor.precio)}/L · +${km.format(mejor.km_desvio)} km de desvío</small></p>
         <div class="acciones"><a class="ir" href="${linkNavegacion(mejor, rec)}" target="_blank" rel="noopener">${ICONO_IR} Cómo llegar</a></div>
       </article>
       <article class="tarjeta">
@@ -371,7 +480,7 @@ function mostrarRecomendacion(rec) {
     html = `
       <article class="tarjeta veredicto neutro">
         <p class="etiqueta">No te conviene desviarte</p>
-        <p class="titulo">Cargá en ${escapar(titulo(ref))}</p>
+        <p class="titulo">Cargá en ${escapar(titulo(ref))}${ref.estimado ? '<span class="marca-estimado">precio estimado</span>' : ""}</p>
         <p class="lugar"><small>${pesosExactos.format(ref.precio)}/L · la que te queda más a mano</small></p>
         <div class="acciones"><a class="ir" href="${linkNavegacion(ref, rec)}" target="_blank" rel="noopener">${ICONO_IR} Cómo llegar</a></div>
       </article>
@@ -384,7 +493,7 @@ function mostrarRecomendacion(rec) {
       const gana = o.ahorro_neto > 0;
       html += `<li class="${gana ? "gana" : ""}">
         <span class="numero">${i + 1}</span>
-        <span class="nombre">${escapar(titulo(o))}</span>
+        <span class="nombre">${escapar(titulo(o))}${o.estimado ? '<span class="marca-estimado">≈ estimado</span>' : ""}</span>
         <span class="ahorro ${gana ? "positivo" : "negativo"}">${gana ? "+" : ""}${pesos.format(o.ahorro_neto)}</span>
         <span class="detalle">${pesosExactos.format(o.precio)}/L · +${km.format(o.km_desvio)} km · +${Math.round(o.minutos_desvio)} min</span>
       </li>`;
@@ -443,6 +552,8 @@ formulario.addEventListener("submit", async (evento) => {
   const parametros = new URLSearchParams({
     desde: valorLugar("desde"),
     producto: producto(),
+    franja: franja(),
+    estimados: $("estimados").checked ? "1" : "0",
     litros: $("litros").value,
     consumo: $("consumo").value,
     valor_hora: $("valor_hora").value,
@@ -469,13 +580,23 @@ formulario.addEventListener("submit", async (evento) => {
   }
 });
 
-formulario.querySelectorAll("input[name=producto]").forEach((radio) =>
+function actualizarCalidad() {
+  $("calidad").hidden = elegido("tipo") === "gnc";
+}
+
+formulario.querySelectorAll("input[name=tipo], input[name=calidad], input[name=franja]").forEach((radio) =>
   radio.addEventListener("change", () => {
+    actualizarCalidad();
     resultado.hidden = true;
     mostrarEstaciones();
   })
 );
+$("estimados").addEventListener("change", () => (resultado.hidden = true));
+
+marcar("franja", franjaPorHora());
+$("pista-franja").textContent = `· ahora rige el ${franjaPorHora().toLowerCase()}`;
 
 leerPreferencias();
+actualizarCalidad();
 actualizarPista();
 mostrarEstaciones();

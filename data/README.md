@@ -115,8 +115,14 @@ User-Agent propio.
 
 - **El precio lo informa la estación.** Si una estación no actualiza, el
   dataset muestra un precio viejo. Hay vigencias de años anteriores (en
-  Rosario aparecen precios de GNC de 2023), por eso se descartan las
-  vigencias demasiado viejas en lugar de suponer un precio.
+  Rosario aparecen precios de GNC de 2023). La consola descarta las
+  vigencias de más de 60 días; la web les estima un precio con su bandera
+  y lo marca.
+- **YPF casi no informa.** El 23/10/2026, solo 165 de las 13.138 filas de
+  YPF del país tenían menos de 30 días, y en Rosario ninguna YPF tenía un
+  precio reciente de nafta. Shell, 2 de 23 estaciones en Rosario. El
+  dataset representa sobre todo a las banderas que siguen informando
+  (Axion, Puma, Gulf, Dapsa).
 - **No incluye descuentos** por app de la petrolera, tarjeta o club de
   beneficios, que para un chofer pueden cambiar cuál conviene.
 - **Coordenadas con errores**: algunas estaciones tienen (0, 0) o puntos

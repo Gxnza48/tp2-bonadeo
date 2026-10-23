@@ -20,8 +20,9 @@ def ubicador_falso(texto, localidad, provincia):
 
 class TestWeb(unittest.TestCase):
     def setUp(self):
+        self.app_precios = Precios(DIR_MUESTRA / "precios_muestra.csv", "ROSARIO", "SANTA FE")
         app = crear_app(
-            precios=Precios(DIR_MUESTRA / "precios_muestra.csv", "ROSARIO", "SANTA FE"),
+            precios=self.app_precios,
             fecha_consulta=datetime(2026, 10, 22, 12, 0, 0),
             ruteador_factory=lambda: RuteadorLineaRecta(),
             ubicador=ubicador_falso,
@@ -82,6 +83,26 @@ class TestWeb(unittest.TestCase):
     def test_direccion_de_un_punto(self):
         self.assertEqual(self.cliente.get("/api/direccion?lat=-32.95&lon=-60.65").get_json()["nombre"], "Oroño 1500")
         self.assertEqual(self.cliente.get("/api/direccion?lat=abc").status_code, 400)
+
+    def test_los_estimados_entran_solo_si_se_piden(self):
+        from dataclasses import replace
+
+        precios = self.app_precios
+        reales = precios.vigentes(datetime(2026, 10, 22, 12, 0, 0))
+        estimado = replace(next(p for p in reales if p.estacion.idempresa == "9006"),
+                           precio=1500, estimado=True, precio_informado=1400, base_estimacion="prueba")
+        precios._cache = (precios._cache[0], [p for p in reales if p.estacion.idempresa != "9006"] + [estimado])
+        url = "/api/recomendar?desde=Oroño 1500&producto=super&franja=Diurno"
+        sin = self.cliente.get(url).get_json()
+        con = self.cliente.get(url + "&estimados=1").get_json()
+        self.assertNotIn("9006", [o["idempresa"] for o in sin["opciones"]] + [sin["referencia"]["idempresa"]])
+        self.assertTrue(con["mejor"]["estimado"])
+        self.assertEqual(con["mejor"]["idempresa"], "9006")
+
+    def test_estaciones_informa_que_tan_frescos_son_los_datos(self):
+        datos = self.cliente.get("/api/estaciones?producto=super&franja=Diurno").get_json()
+        self.assertEqual(datos["ultimo_informe"], "2026-10-18 09:05:00")
+        self.assertFalse(datos["muestra"])
 
     def test_sin_estaciones_da_404(self):
         respuesta = self.cliente.get("/api/recomendar?desde=Oroño 1500&producto=gnc&franja=Nocturno")

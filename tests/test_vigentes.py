@@ -8,9 +8,11 @@ from src.modelos import PRODUCTOS, Estacion, PrecioEstacion
 from src.pipeline import (
     NOMBRES_PRODUCTO,
     armar_precios,
+    estimar_precios,
     filtrar_ciudad,
     limpiar_precios,
     precios_vigentes,
+    procesar,
 )
 
 CONSULTA = datetime(2026, 10, 22, 12, 0, 0)
@@ -32,6 +34,10 @@ def vigentes_de_la_muestra(fecha_consulta):
 
 
 class TestModelos(unittest.TestCase):
+    def test_bandera_corta(self):
+        self.assertEqual(PELLEGRINI.bandera_corta, "Shell")
+        self.assertEqual(ORONO.bandera_corta, "YPF")
+
     def test_nombre_de_la_estacion(self):
         self.assertEqual(ORONO.nombre, "ESTACIÓN ORONO S.R.L. (YPF)")
         self.assertEqual(str(ORONO), "ESTACIÓN ORONO S.R.L. (YPF), Bv. Oroño 1500")
@@ -117,6 +123,53 @@ class TestPrecioVigente(unittest.TestCase):
         # El precio de $1890 de Oroño empieza a regir el 15/10: antes rige el de $1790.
         vigentes = vigentes_de_la_muestra(datetime(2026, 10, 1, 12, 0, 0))
         self.assertIn(("9001", "super", 1790), [(p.estacion.idempresa, p.producto, p.precio) for p in vigentes])
+
+
+def estacion_en(idempresa, bandera, ubicacion, provincia="SANTA FE"):
+    return Estacion(idempresa, "30-71234567-1", f"EMPRESA {idempresa}", f"Calle {idempresa}",
+                    "ROSARIO", provincia, bandera, *ubicacion)
+
+
+class TestEstimacion(unittest.TestCase):
+    """Estaciones que dejaron de informar: precio estimado con su bandera."""
+
+    def setUp(self):
+        self.vieja = PrecioEstacion(estacion_en("1", "YPF", (-32.95, -60.65)), "super", "Diurno", 1283,
+                                    datetime(2025, 6, 2))
+
+    def reciente(self, idempresa, valor, ubicacion, bandera="YPF", provincia="SANTA FE"):
+        return PrecioEstacion(estacion_en(idempresa, bandera, ubicacion, provincia), "super", "Diurno",
+                              valor, datetime(2026, 10, 20))
+
+    def test_usa_la_mediana_de_la_misma_bandera_cerca(self):
+        recientes = [self.reciente("2", 2200, (-32.96, -60.66)), self.reciente("3", 2240, (-32.90, -60.70)),
+                     self.reciente("4", 1900, (-31.60, -60.70))]  # Santa Fe capital: lejos
+        [estimado] = estimar_precios([self.vieja], recientes)
+        self.assertTrue(estimado.estimado)
+        self.assertEqual(estimado.precio, 2220)
+        self.assertEqual(estimado.precio_informado, 1283)
+        self.assertIn("2 estaciones YPF a menos de 50 km", estimado.base_estimacion)
+
+    def test_si_no_hay_cerca_usa_la_provincia(self):
+        [estimado] = estimar_precios([self.vieja], [self.reciente("4", 2155, (-31.60, -60.70))])
+        self.assertEqual(estimado.precio, 2155)
+        self.assertIn("1 estación YPF de Santa Fe", estimado.base_estimacion)
+
+    def test_otra_bandera_u_otra_provincia_no_sirven(self):
+        recientes = [self.reciente("5", 2212, (-32.95, -60.66), bandera="PUMA"),
+                     self.reciente("6", 2100, (-34.60, -58.40), provincia="BUENOS AIRES")]
+        self.assertEqual(estimar_precios([self.vieja], recientes), [])
+
+    def test_procesar_con_estimacion_suma_estaciones_sin_perder_las_informadas(self):
+        ruta = DIR_MUESTRA / "precios_rosario_real.csv"
+        registros = fuente_para(ruta).cargar(ruta)
+        solo_informados, _ = procesar(registros, CONSULTA, "ROSARIO", "SANTA FE")
+        con_estimados, _ = procesar(registros, CONSULTA, "ROSARIO", "SANTA FE", estimar=True)
+        informados = [p for p in con_estimados if not p.estimado]
+        self.assertEqual(sorted(p.clave for p in informados), sorted(p.clave for p in solo_informados))
+        self.assertGreater(len(con_estimados), len(solo_informados))
+        claves = [p.clave for p in con_estimados]
+        self.assertEqual(len(claves), len(set(claves)))
 
 
 class TestPropiedadesVigentes(unittest.TestCase):

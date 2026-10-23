@@ -101,7 +101,11 @@ Queda afuera:
 - Descuentos por tarjeta o por la app de la petrolera.
 - Tiempo de espera en la estación y tránsito en tiempo real.
 - Recorridos con varias paradas.
-- Estaciones que no actualizan su precio: se excluyen, no se inventa uno.
+
+Las estaciones que no actualizan su precio aparecen con un precio
+**estimado** a partir de su misma bandera, siempre marcado como tal, y solo
+entran en la recomendación si el chofer lo pide (ver
+[Estaciones que no informan](#estaciones-que-no-informan)).
 
 ## Datos
 
@@ -143,6 +147,7 @@ tp2-bonadeo/
 │   ├── test_web.py
 │   ├── test_descarga.py
 │   └── test_direcciones.py
+├── .github/workflows/       actualización automática de precios
 ├── requirements.txt
 ├── vercel.json
 └── README.md
@@ -283,6 +288,34 @@ conoce su `Estacion`, y para cada estación, producto y franja se elige
 - Diurno y Nocturno se tratan como precios distintos, igual que cada
   producto.
 
+## Estaciones que no informan
+
+El 23/10/2026, de las 95 estaciones de Rosario solo 16 tenían algún precio
+de los últimos 60 días. El caso más grave es **YPF: en todo el país, solo
+165 de sus 13.138 filas tienen menos de 30 días**, y alrededor de Rosario
+no hay ningún precio reciente de nafta YPF. Shell está parecido (2 de 23
+estaciones en Rosario). No es un error de la app: esas estaciones dejaron
+de cargar sus precios en el sistema de la Resolución 314/2016.
+
+Para que el chofer vea todas las estaciones, la web (no la consola) les
+pone un **precio estimado**: la mediana de los precios recientes de la
+misma bandera, producto y horario, primero de estaciones a menos de 50 km
+y, si no hay, de toda la provincia. Las petroleras fijan precios por zona,
+así que es una aproximación razonable, pero tiene límites claros: el de
+YPF en Rosario sale de una sola estación de la provincia.
+
+Por eso:
+
+- En el mapa las estimadas son puntos grises (con zoom, etiquetas con
+  "≈"), y al tocarlas dicen de dónde sale la estimación y cuál fue el
+  último precio que informó esa estación y cuándo.
+- **No entran en la recomendación salvo que el chofer active "Contar
+  estaciones con precio estimado"**. Si entran, aparecen marcadas
+  "≈ estimado". Así la app nunca manda a alguien a una estación por un
+  precio que nadie informó sin decírselo.
+- Si no hay ninguna estación de la misma bandera con precio reciente en la
+  provincia, la estación queda afuera.
+
 ## Web
 
 ```
@@ -301,13 +334,23 @@ de cada estación (la más barata en verde) y abajo el formulario:
   como "Mendoza y Oroño"), con el botón de **ubicación** que usa el GPS del
   teléfono, o **tocando el mapa**. Los pines se pueden arrastrar para
   corregir el punto, y la app pone el nombre de la calle sola.
-- "Cerca mío" o "Tengo destino", el combustible, los litros y los km por
-  litro (con botones + y −), y opcionalmente el valor de la hora.
+- "Cerca mío" o "Tengo destino"; qué carga (**Nafta, Gasoil o GNC**, y
+  común o premium); el **horario** de los precios (diurno o nocturno, que
+  viene elegido según la hora); los litros y los km por litro (con botones
+  + y −), y opcionalmente el valor de la hora.
+- Un interruptor para **contar las estaciones con precio estimado**
+  (apagado por defecto).
 - Con **¿Dónde cargo?** aparece el veredicto en grande ("Conviene
   desviarte · ahorrás $1.049" o "No te conviene desviarte"), la cuenta
   desglosada, el botón **Cómo llegar** (abre Google Maps con la parada en la
   estación) y la lista de todas las opciones. En el mapa quedan marcadas
   la referencia (naranja) y la que conviene (verde).
+
+Abajo hay una lista desplegable con **todas las estaciones** del
+combustible y horario elegidos, de la más barata a la más cara, con
+cuándo informó cada una o de dónde sale su estimación; tocando una se ve en
+el mapa. Arriba, un indicador dice cuándo fue el último precio informado
+en la ciudad ("Último precio: hoy 06:00").
 
 Las estaciones se muestran por bandera y dirección ("Puma · Pueyrredon
 1089"), que es como las reconoce un chofer, y no por la razón social. El
@@ -410,10 +453,10 @@ sigue con los demás.
 
 ## Limitaciones
 
-- **Precios informados por las estaciones.** Si una estación no actualiza,
-  queda afuera (vigencia de más de 60 días), aunque quizás sea la más
-  barata. En Rosario, el 22/10/2026, solo 16 de 95 estaciones tenían
-  precios recientes.
+- **Precios informados por las estaciones.** Casi todas las YPF y Shell
+  dejaron de informar al Estado; la app las muestra con precio estimado,
+  pero no hay un dato oficial de su precio de hoy (ver
+  [Estaciones que no informan](#estaciones-que-no-informan)).
 - **Sin descuentos** por app de la petrolera, tarjetas o clubes de
   beneficios, que pueden dar vuelta la recomendación.
 - **Sin tránsito real ni espera en la estación.** La duración es la de OSRM
@@ -440,7 +483,7 @@ Más detalle sobre los datos en [data/README.md](data/README.md).
 python -m unittest discover -s tests -v
 ```
 
-111 pruebas, ninguna necesita internet: OSRM, Georef, Nominatim, Photon y
+121 pruebas, ninguna necesita internet: OSRM, Georef, Nominatim, Photon y
 la descarga se reemplazan por clientes falsos. Cubren casos normales, entradas inválidas
 (archivos rotos, CUIT y fechas mal escritos, parámetros sin sentido) y
 propiedades del resultado: leer CSV o JSON da lo mismo, ninguna fila se

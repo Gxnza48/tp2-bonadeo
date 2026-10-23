@@ -10,7 +10,7 @@ from pathlib import Path
 import requests
 
 from src.config import DIR_MUESTRA
-from src.descarga import ErrorDescarga, antiguedad_minutos, descargar_precios
+from src.descarga import ErrorDescarga, antiguedad_minutos, descargar_de_alguna, descargar_precios
 from src.web import MUESTRA, Precios
 
 CSV_BUENO = (DIR_MUESTRA / "precios_muestra.csv").read_bytes()
@@ -60,6 +60,17 @@ class TestDescarga(ConCarpetaTemporal):
         with self.assertRaisesRegex(ErrorDescarga, "No se pudo descargar"):
             descargar_precios(self.destino, cliente=ClienteFalso(error=requests.ConnectionError()))
         self.assertFalse(self.destino.exists())
+
+    def test_prueba_las_urls_en_orden(self):
+        class ClientePorUrl:
+            def get(self, url, **kwargs):
+                if "copia" in url:
+                    raise requests.HTTPError("404")
+                return RespuestaFalsa(CSV_BUENO)
+
+        self.assertEqual(descargar_de_alguna(self.destino, ["https://copia", "https://oficial"], ClientePorUrl()), 15)
+        with self.assertRaisesRegex(ErrorDescarga, "copia"):
+            descargar_de_alguna(self.destino, ["https://copia"], ClientePorUrl())
 
     def test_antiguedad(self):
         self.assertIsNone(antiguedad_minutos(self.destino))

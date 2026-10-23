@@ -44,6 +44,17 @@ def descargar_precios(destino, url=URL_PRECIOS_VIGENTES, cliente=requests, timeo
     return len(registros)
 
 
+def descargar_de_alguna(destino, urls, cliente=requests):
+    """Prueba las URLs en orden y se queda con la primera que funciona."""
+    errores = []
+    for url in urls:
+        try:
+            return descargar_precios(destino, url=url, cliente=cliente)
+        except ErrorDescarga as error:
+            errores.append(str(error))
+    raise ErrorDescarga(" / ".join(errores))
+
+
 def antiguedad_minutos(ruta):
     """Minutos desde la última modificación del archivo (None si no existe)."""
     ruta = Path(ruta)

@@ -251,7 +251,50 @@ button { cursor: pointer; }
 
 .error-campo { margin: 0 0 8px; color: var(--pierde); font-size: .88rem; font-weight: 600; }
 
-/* Combustible */
+/* Combustible, horario y estimados */
+
+.segmentos.tres { grid-template-columns: repeat(3, 1fr); margin-bottom: 8px; }
+.segmentos.chico { margin-bottom: 0; }
+.segmentos.chico span { padding: 6px 4px; font-size: .85rem; }
+.grupo legend small { font-weight: 600; color: var(--suave); opacity: .85; margin-left: 4px; }
+.grupo .segmentos { margin-bottom: 0; }
+.grupo .segmentos.tres { margin-bottom: 8px; }
+
+.interruptor {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin-top: 16px;
+  cursor: pointer;
+}
+.interruptor input { position: absolute; opacity: 0; pointer-events: none; }
+.perilla {
+  flex: none;
+  position: relative;
+  width: 46px;
+  height: 28px;
+  margin-top: 2px;
+  border-radius: 999px;
+  background: var(--borde);
+  transition: background .15s;
+}
+.perilla::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, .25);
+  transition: transform .15s;
+}
+.interruptor input:checked + .perilla { background: var(--marca-viva); }
+.interruptor input:checked + .perilla::after { transform: translateX(18px); }
+.interruptor input:focus-visible + .perilla { outline: 3px solid var(--marca-viva); outline-offset: 2px; }
+.interruptor .texto { font-weight: 700; font-size: .92rem; line-height: 1.3; }
+.interruptor small { display: block; font-weight: 500; color: var(--suave); font-size: .8rem; margin-top: 2px; }
 
 .grupo { border: 0; padding: 0; margin: 14px 0 0; }
 .grupo legend, .paso label, .tiempo label {
@@ -415,6 +458,48 @@ button { cursor: pointer; }
 .positivo { color: var(--gana); }
 .negativo { color: var(--pierde); }
 
+.marca-estimado {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  border: 1px dashed currentColor;
+  font-size: .7rem;
+  font-weight: 700;
+  color: var(--suave);
+  vertical-align: middle;
+}
+.veredicto .marca-estimado { color: #fff; }
+
+.seccion-lista { padding: 12px 16px 0; }
+#lista-estaciones summary {
+  cursor: pointer;
+  font-weight: 800;
+  list-style: none;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+#lista-estaciones summary::after { content: "▾"; color: var(--suave); transition: transform .15s; }
+#lista-estaciones[open] summary::after { transform: rotate(180deg); }
+#lista-estaciones summary::-webkit-details-marker { display: none; }
+.ranking { margin: 8px 0 0; padding: 0; list-style: none; counter-reset: puesto; }
+.ranking li {
+  counter-increment: puesto;
+  display: grid;
+  grid-template-columns: 26px 1fr auto;
+  gap: 0 10px;
+  align-items: center;
+  padding: 9px 0;
+  border-top: 1px solid var(--borde);
+  cursor: pointer;
+}
+.ranking li::before { content: counter(puesto); grid-row: span 2; font-size: .8rem; font-weight: 800; color: var(--suave); text-align: center; }
+.ranking .nombre { font-weight: 700; }
+.ranking .detalle { grid-column: 2; font-size: .8rem; color: var(--suave); }
+.ranking .precio { grid-row: 1 / span 2; grid-column: 3; font-weight: 800; }
+.ranking li.estimada .precio { color: var(--suave); }
+
 .aviso { margin: 0; padding: 10px 12px; border-radius: 12px; background: var(--aviso-fondo); color: var(--aviso); font-size: .88rem; font-weight: 600; }
 .error { margin: 0; color: var(--pierde); font-weight: 700; }
 
@@ -464,6 +549,17 @@ button { cursor: pointer; }
 .precio-mapa.referencia { background: #fef3c7; border-color: #d97706; color: #78350f; }
 .precio-mapa.mejor { background: #15803d; border-color: #15803d; color: #fff; font-size: 14px; padding: 5px 9px; }
 .precio-mapa.apagada { opacity: .55; }
+.punto-estimado {
+  display: block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #94a3b8;
+  border: 2px solid #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, .3);
+}
+.precio-mapa.estimada { border-style: dashed; background: #f1f5f9; color: #475569; font-weight: 700; }
+.precio-mapa.estimada.mejor { background: #15803d; color: #fff; }
 
 .pin {
   width: 22px;
@@ -487,6 +583,7 @@ button { cursor: pointer; }
   .hoja { margin: 0; border-radius: 0; box-shadow: none; padding: 24px 22px 20px; }
   .hoja h1 { font-size: 1.35rem; }
   #resultado { padding: 4px 22px 0; }
+  .seccion-lista { padding: 12px 22px 0; }
   .pie { padding: 18px 22px 24px; }
   .boton-mapa { bottom: 24px; }
 }

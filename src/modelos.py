@@ -23,6 +23,12 @@ class Estacion:
     def nombre(self):
         return f"{self.empresa} ({self.bandera})" if self.bandera else self.empresa
 
+    @property
+    def bandera_corta(self):
+        """'SHELL C.A.P.S.A.' -> 'Shell', 'YPF' -> 'YPF'."""
+        nombre = self.bandera.replace("C.A.P.S.A.", "").replace(" S.A.", "").strip()
+        return nombre if len(nombre) <= 3 else nombre.title()
+
     def __str__(self):
         return f"{self.nombre}, {self.direccion}"
 
@@ -36,6 +42,11 @@ class PrecioEstacion:
     horario: str
     precio: float
     vigente_desde: datetime
+    # Para las estaciones que dejaron de informar: el precio es una
+    # estimación y se guarda el último que informaron y de dónde sale.
+    estimado: bool = False
+    precio_informado: float | None = None
+    base_estimacion: str | None = None
 
     def __post_init__(self):
         if self.producto not in PRODUCTOS:

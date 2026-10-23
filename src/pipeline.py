@@ -10,6 +10,7 @@ precio vigente de cada estación.
 import csv
 import re
 import unicodedata
+from dataclasses import replace
 from datetime import datetime, timedelta
 from statistics import median
 
@@ -21,8 +22,10 @@ from src.config import (
     LIMITES_ARGENTINA,
     LIMITES_PROVINCIA,
     MINIMO_PARA_MEDIANA,
+    RADIO_ESTIMACION_KM,
 )
 from src.modelos import HORARIOS, Estacion, PrecioEstacion
+from src.ruteo import distancia_km
 
 PATRON_CUIT = re.compile(r"^(\d{2})-(\d{8})-(\d)$")
 PESOS_CUIT = (5, 4, 3, 2, 7, 6, 5, 4, 3, 2)
@@ -122,7 +125,7 @@ def problema_coordenadas(latitud, longitud, provincia):
     return None
 
 
-def validar_registro(registro, fecha_consulta):
+def validar_registro(registro, fecha_consulta, dias_maximos=DIAS_MAXIMOS_VIGENCIA):
     """Devuelve (precio, motivos). Si hay motivos, precio es None."""
     motivos = [f"falta {campo}" for campo in CAMPOS_OBLIGATORIOS if not registro[campo]]
     if motivos:
@@ -148,8 +151,8 @@ def validar_registro(registro, fecha_consulta):
     fecha = leer_fecha(registro["fecha_vigencia"])
     if isinstance(fecha, str):
         motivos.append(fecha)
-    elif fecha_consulta - fecha > timedelta(days=DIAS_MAXIMOS_VIGENCIA):
-        motivos.append(f"vigencia de más de {DIAS_MAXIMOS_VIGENCIA} días")
+    elif dias_maximos is not None and fecha_consulta - fecha > timedelta(days=dias_maximos):
+        motivos.append(f"vigencia de más de {dias_maximos} días")
 
     latitud = leer_numero(registro["latitud"])
     longitud = leer_numero(registro["longitud"])
@@ -178,11 +181,15 @@ def rechazo(numero_fila, registro, motivos):
     return {"fila": numero_fila, "motivo": " | ".join(motivos), **registro}
 
 
-def limpiar_precios(registros, fecha_consulta=None):
+def limpiar_precios(registros, fecha_consulta=None, dias_maximos=DIAS_MAXIMOS_VIGENCIA):
     """Valida, saca duplicados y precios fuera de rango.
 
     Devuelve (validos, rechazos). Cada rechazo lleva el número de fila
     (1 es el primer registro, sin contar el encabezado) y el motivo.
+    Con dias_maximos=None se aceptan vigencias de cualquier antigüedad (la
+    web las usa para mostrar todas las estaciones); el control de rango
+    se hace igual solo sobre los precios recientes, porque los viejos son
+    más bajos por la inflación y no deben correr la mediana.
     """
     if not registros:
         return [], []
@@ -193,7 +200,7 @@ def limpiar_precios(registros, fecha_consulta=None):
     vistos = {}
     for numero_fila, original in enumerate(registros, start=1):
         registro = normalizar_campos(original)
-        precio, motivos = validar_registro(registro, fecha_consulta)
+        precio, motivos = validar_registro(registro, fecha_consulta, dias_maximos)
         if motivos:
             rechazos.append(rechazo(numero_fila, registro, motivos))
             continue
@@ -206,11 +213,15 @@ def limpiar_precios(registros, fecha_consulta=None):
         vistos[clave] = numero_fila
         candidatos.append((numero_fila, registro, precio))
 
-    medianas = medianas_por_producto(precio for _, _, precio in candidatos)
+    limite = timedelta(days=DIAS_MAXIMOS_VIGENCIA)
+    medianas = medianas_por_producto(
+        precio for _, _, precio in candidatos if fecha_consulta - precio["fecha_vigencia"] <= limite
+    )
     validos = []
     for numero_fila, registro, precio in candidatos:
         mediana = medianas.get(precio["producto"])
-        if mediana and not (FACTOR_MINIMO_PRECIO * mediana <= precio["precio"] <= FACTOR_MAXIMO_PRECIO * mediana):
+        reciente = fecha_consulta - precio["fecha_vigencia"] <= limite
+        if mediana and reciente and not (FACTOR_MINIMO_PRECIO * mediana <= precio["precio"] <= FACTOR_MAXIMO_PRECIO * mediana):
             motivo = f"precio fuera de rango: {precio['precio']:g} (mediana {mediana:g})"
             rechazos.append(rechazo(numero_fila, registro, [motivo]))
         else:
@@ -314,11 +325,63 @@ def precios_vigentes(precios, fecha_consulta):
     )
 
 
-def procesar(registros, fecha_consulta, localidad, provincia):
+def procesar(registros, fecha_consulta, localidad, provincia, estimar=False):
     """Todo el flujo: limpia, arma los objetos, filtra la ciudad y elige vigentes.
 
-    Devuelve (vigentes, rechazos).
+    Devuelve (vigentes, rechazos). Sin `estimar`, solo quedan los precios
+    de hasta DIAS_MAXIMOS_VIGENCIA días. Con `estimar` (lo que usa la web)
+    quedan todas las estaciones de la ciudad: las que no actualizan llevan
+    un precio estimado con su misma bandera, ver estimar_precios().
     """
-    validos, rechazos = limpiar_precios(registros, fecha_consulta)
-    precios = filtrar_ciudad(armar_precios(validos), localidad, provincia)
-    return precios_vigentes(precios, fecha_consulta), rechazos
+    if not estimar:
+        validos, rechazos = limpiar_precios(registros, fecha_consulta)
+        precios = filtrar_ciudad(armar_precios(validos), localidad, provincia)
+        return precios_vigentes(precios, fecha_consulta), rechazos
+
+    validos, rechazos = limpiar_precios(registros, fecha_consulta, dias_maximos=None)
+    ultimos = precios_vigentes(armar_precios(validos), fecha_consulta)
+    recientes = [p for p in ultimos if p.dias_de_antiguedad(fecha_consulta) <= DIAS_MAXIMOS_VIGENCIA]
+    de_la_ciudad = filtrar_ciudad(ultimos, localidad, provincia)
+    viejos = [p for p in de_la_ciudad if p.dias_de_antiguedad(fecha_consulta) > DIAS_MAXIMOS_VIGENCIA]
+    actuales = [p for p in de_la_ciudad if p.dias_de_antiguedad(fecha_consulta) <= DIAS_MAXIMOS_VIGENCIA]
+    vigentes = actuales + estimar_precios(viejos, recientes)
+    vigentes.sort(key=lambda p: (p.producto, p.horario, p.precio, p.estacion.idempresa))
+    return vigentes, rechazos
+
+
+def estimar_precios(viejos, recientes, radio_km=RADIO_ESTIMACION_KM):
+    """Precio estimado para las estaciones que dejaron de informar.
+
+    Es la mediana de los precios recientes de la misma bandera, producto y
+    franja: primero de las estaciones a menos de radio_km y, si no hay, de
+    toda la provincia. Las petroleras fijan precios por zona, así que es
+    una aproximación razonable, pero queda marcado como estimado. Si no
+    hay ninguna referencia, la estación queda afuera.
+    """
+    por_grupo = {}
+    for p in recientes:
+        por_grupo.setdefault((p.estacion.bandera, p.producto, p.horario), []).append(p)
+
+    estimados = []
+    for viejo in viejos:
+        grupo = por_grupo.get((viejo.estacion.bandera, viejo.producto, viejo.horario), [])
+        ubicacion = (viejo.estacion.latitud, viejo.estacion.longitud)
+        cerca = [p.precio for p in grupo
+                 if distancia_km(ubicacion, (p.estacion.latitud, p.estacion.longitud)) <= radio_km]
+        base, zona = (cerca, f"a menos de {radio_km:g} km") if cerca else (
+            [p.precio for p in grupo if p.estacion.provincia == viejo.estacion.provincia],
+            f"de {viejo.estacion.provincia.title()}",
+        )
+        if not base:
+            continue
+        estimados.append(replace(
+            viejo,
+            precio=round(median(base), 2),
+            estimado=True,
+            precio_informado=viejo.precio,
+            base_estimacion=(
+                f"con {len(base)} {'estación' if len(base) == 1 else 'estaciones'} "
+                f"{viejo.estacion.bandera_corta} {zona}"
+            ),
+        ))
+    return estimados

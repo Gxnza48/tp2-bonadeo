@@ -166,6 +166,20 @@ class TestLimpieza(unittest.TestCase):
         motivos = self.motivos(registro(precio="1890"), registro(idempresa="9002", precio="250"))
         self.assertEqual(motivos, [])
 
+    def test_sin_limite_de_antiguedad_quedan_los_viejos(self):
+        viejo = registro(fecha_vigencia="2025-06-02 08:21:00", precio="1283", idempresa="9002")
+        validos, rechazos = limpiar_precios([registro(), viejo], CONSULTA, dias_maximos=None)
+        self.assertEqual((len(validos), len(rechazos)), (2, 0))
+
+    def test_los_precios_viejos_no_corren_la_mediana(self):
+        # Muchos precios viejos (más bajos por la inflación) no tienen que
+        # hacer que los actuales parezcan fuera de rango.
+        viejos = [registro(idempresa=str(8000 + i), precio="1100", fecha_vigencia="2025-01-10 10:00:00")
+                  for i in range(10)]
+        actuales = [registro(idempresa=str(9000 + i), precio=p) for i, p in enumerate(["2200", "2210", "2250", "2254", "2190"])]
+        validos, rechazos = limpiar_precios(viejos + actuales, CONSULTA, dias_maximos=None)
+        self.assertEqual((len(validos), len(rechazos)), (15, 0))
+
     def test_falta_una_columna(self):
         sin_cuit = {k: v for k, v in registro().items() if k != "cuit"}
         with self.assertRaisesRegex(ErrorEsquema, "cuit"):

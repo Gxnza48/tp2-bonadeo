@@ -65,13 +65,33 @@
         <p id="error-lugar" class="error-campo" hidden></p>
 
         <fieldset class="grupo">
-          <legend>Combustible</legend>
-          <div class="chips">
-            {% for valor, etiqueta in productos.items() %}
-            <label class="chip"><input type="radio" name="producto" value="{{ valor }}" {% if loop.first %}checked{% endif %}><span>{{ etiqueta }}</span></label>
-            {% endfor %}
+          <legend>¿Qué cargás?</legend>
+          <div class="segmentos tres" role="radiogroup" aria-label="Combustible">
+            <label><input type="radio" name="tipo" value="nafta" checked><span>Nafta</span></label>
+            <label><input type="radio" name="tipo" value="gasoil"><span>Gasoil</span></label>
+            <label><input type="radio" name="tipo" value="gnc"><span>GNC</span></label>
+          </div>
+          <div class="segmentos chico" id="calidad" role="radiogroup" aria-label="Calidad">
+            <label><input type="radio" name="calidad" value="comun" checked><span>Común</span></label>
+            <label><input type="radio" name="calidad" value="premium"><span>Premium</span></label>
           </div>
         </fieldset>
+
+        <fieldset class="grupo">
+          <legend>Horario <small id="pista-franja"></small></legend>
+          <div class="segmentos" role="radiogroup" aria-label="Horario de los precios">
+            <label><input type="radio" name="franja" value="Diurno"><span>Diurno</span></label>
+            <label><input type="radio" name="franja" value="Nocturno"><span>Nocturno</span></label>
+          </div>
+        </fieldset>
+
+        <label class="interruptor">
+          <input type="checkbox" id="estimados">
+          <span class="perilla" aria-hidden="true"></span>
+          <span class="texto">Contar estaciones con precio estimado
+            <small>Las que no informan al Estado (casi todas las YPF y Shell): se estima con su misma bandera</small>
+          </span>
+        </label>
 
         <div class="pasos">
           <div class="paso">
@@ -105,8 +125,17 @@
 
       <section id="resultado" aria-live="polite" hidden></section>
 
+      <section class="seccion-lista">
+        <details id="lista-estaciones" class="tarjeta">
+          <summary><span id="titulo-lista">Todas las estaciones</span></summary>
+          <p class="nota" id="explicacion-lista"></p>
+          <ol class="ranking" id="ranking"></ol>
+        </details>
+      </section>
+
       <footer class="pie">
-        Precios: Secretaría de Energía, Res. 314/2016 (CC-BY 4.0), informados por cada estación.
+        Precios: Secretaría de Energía, Res. 314/2016 (CC-BY 4.0), informados por cada estación;
+        los marcados ≈ son estimados.
         Rutas: OSRM. Direcciones: Georef y OpenStreetMap. No incluye descuentos por app ni tarjeta.
       </footer>
     </div>
