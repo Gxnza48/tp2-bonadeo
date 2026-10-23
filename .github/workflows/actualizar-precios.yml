@@ -1,7 +1,10 @@
 # Baja el archivo oficial de precios vigentes y lo publica como adjunto del
-# release "datos" del repositorio, de donde lo lee la web en Vercel. El
-# servidor de la Secretaría de Energía no acepta conexiones desde Vercel,
-# por eso la descarga se hace acá.
+# release "datos" del repositorio, de donde lo lee la web en Vercel.
+#
+# El servidor de la Secretaría de Energía solo acepta conexiones desde
+# Argentina (no responde ni desde Vercel ni desde los servidores de GitHub),
+# así que corre en un runner propio, en una PC en Argentina, con la
+# etiqueta "nafteando". Si la PC está apagada, la corrida espera.
 name: Actualizar precios
 
 on:
@@ -14,22 +17,33 @@ permissions:
 
 jobs:
   actualizar:
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
+    runs-on: [self-hosted, nafteando]
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: powershell
+    env:
+      PYTHONIOENCODING: utf-8
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - run: pip install -r requirements.txt
+
+      - name: Instalar dependencias
+        run: python -m pip install --quiet --target .paquetes -r requirements.txt
+
       - name: Descargar precios vigentes
-        run: python -m src.main actualizar --destino precios_vigentes.csv
+        run: |
+          $env:PYTHONPATH = ".paquetes"
+          python -m src.main actualizar --destino precios_vigentes.csv
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       - name: Publicar en el release "datos"
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          if ! gh release view datos > /dev/null 2>&1; then
-            gh release create datos --title "Precios vigentes" --latest=false \
+          gh release view datos *> $null
+          if ($LASTEXITCODE -ne 0) {
+            gh release create datos --title "Precios vigentes" --latest=false `
               --notes "Archivo de precios vigentes de la Secretaría de Energía (Res. 314/2016, CC-BY 4.0), actualizado automáticamente cada 3 horas."
-          fi
+          }
           gh release upload datos precios_vigentes.csv --clobber
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
