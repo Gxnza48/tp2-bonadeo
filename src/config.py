@@ -38,6 +38,9 @@ ARCHIVO_VIGENTES = DIR_CRUDOS / "precios_vigentes.csv"
 URL_PRECIOS_PUBLICADOS = "https://github.com/Gxnza48/tp2-bonadeo/releases/download/datos/precios_vigentes.csv"
 # El dataset se actualiza cada hora; la web no lo vuelve a bajar antes.
 MINUTOS_ENTRE_DESCARGAS = 60
+# Si una descarga falla, la web vuelve a intentar recién después de esto,
+# para no hacer esperar cada pedido a un servidor que no responde.
+MINUTOS_REINTENTO = 10
 
 # (localidad, provincia) tal como aparecen en el dataset.
 CIUDAD_POR_DEFECTO = ("ROSARIO", "SANTA FE")

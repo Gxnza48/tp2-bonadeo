@@ -31,6 +31,7 @@ from src.config import (
     CIUDAD_POR_DEFECTO,
     DIR_MUESTRA,
     MINUTOS_ENTRE_DESCARGAS,
+    MINUTOS_REINTENTO,
     URL_PRECIOS_PUBLICADOS,
     URL_PRECIOS_VIGENTES,
 )
@@ -58,8 +59,8 @@ class Precios:
 
     Con `descargar`, antes de leer baja el archivo oficial si no está o si
     tiene más de MINUTOS_ENTRE_DESCARGAS. Si la descarga falla sigue con el
-    archivo que haya, o con la muestra, y no reintenta hasta que pase ese
-    mismo tiempo (si no, cada pedido esperaría al servidor caído).
+    archivo que haya, o con la muestra, y no reintenta hasta que pasen
+    MINUTOS_REINTENTO (si no, cada pedido esperaría al servidor caído).
     """
 
     def __init__(self, ruta, localidad, provincia, descargar=False, descargador=None, estimar=True):
@@ -79,7 +80,7 @@ class Precios:
     def _toca_descargar(self):
         if not self.descargar:
             return False
-        if self._ultima_falla and (time.monotonic() - self._ultima_falla) / 60 < MINUTOS_ENTRE_DESCARGAS:
+        if self._ultima_falla and (time.monotonic() - self._ultima_falla) / 60 < MINUTOS_REINTENTO:
             return False
         antiguedad = antiguedad_minutos(self.ruta)
         return antiguedad is None or antiguedad > MINUTOS_ENTRE_DESCARGAS
