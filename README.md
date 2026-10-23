@@ -466,8 +466,9 @@ sigue con los demás.
 - **Un solo destino.** No contempla recorridos con varias paradas.
 - **Coordenadas**: algunas estaciones tienen coordenadas que no
   corresponden a su dirección y no siempre se detectan.
-- **La web publicada no tiene precios del día**: el servidor oficial no
-  responde desde Vercel (ver [Deploy](#deploy-en-vercel)).
+- **La actualización depende de una PC en Argentina prendida**: el
+  servidor oficial no responde desde la nube (ver
+  [Actualización automática](#actualización-automática-de-precios)).
 - **Servicios públicos de OSRM, Georef, Nominatim y Photon**: son
   gratuitos y con uso limitado; para mucho tráfico habría que tener
   servidores propios.
@@ -504,12 +505,41 @@ variables de entorno:
 vercel deploy --prod
 ```
 
-La idea era que en Vercel la app bajara los precios a la carpeta temporal
-cada hora (`NAFTEANDO_DESCARGAR=1`). **Pero el servidor de la Secretaría de
-Energía (`datos.energia.gob.ar`) no acepta conexiones desde Vercel**: se
-probó desde Estados Unidos y desde San Pablo, y en los dos casos la conexión
-no llega a abrirse; desde una conexión argentina responde bien. Por eso la
-versión publicada usa la muestra real del 22/10/2026 y lo avisa en la
-página. Para tener precios del día hay que correr la app desde Argentina:
-`python -m src.main actualizar` y después la consola o
-`flask --app src.web run`.
+## Actualización automática de precios
+
+La web publicada tiene que usar los precios del día: a un chofer no le sirve
+el precio de ayer. El problema es que **el servidor de la Secretaría de
+Energía (`datos.energia.gob.ar`) solo acepta conexiones desde Argentina**:
+se probó desde Vercel (Estados Unidos y San Pablo) y desde los servidores de
+GitHub Actions, y en todos los casos la conexión no llega a abrirse.
+
+La solución tiene tres partes:
+
+1. **Un runner propio de GitHub Actions en una PC en Argentina**, con la
+   etiqueta `nafteando`. Arranca solo al iniciar sesión (una tarea
+   programada de Windows).
+2. **El workflow `.github/workflows/actualizar-precios.yml`** corre cada 3
+   horas en ese runner: baja el archivo oficial con
+   `python -m src.main actualizar` (que controla las columnas antes de
+   reemplazar nada) y lo sube como adjunto del release `datos` del
+   repositorio. No agrega commits: el historial queda solo con cambios de
+   código.
+3. **La web en Vercel** baja ese adjunto a su carpeta temporal y lo renueva
+   cada hora. Si no puede, sigue con el último archivo que tenga, o con la
+   muestra, y lo avisa en la página. Arriba de todo muestra cuándo fue el
+   último precio informado ("Último precio: hoy 06:00").
+
+Cada corrida queda registrada en la pestaña **Actions** del repositorio. Si
+la PC está apagada, la corrida espera a que se prenda; mientras tanto la web
+sigue con los precios de la última actualización. Para que funcione las 24
+horas habría que poner el runner en un servidor con IP argentina.
+
+Como el repositorio es público, la configuración exige aprobación para los
+workflows de pull requests externos: nadie de afuera puede ejecutar código
+en el runner sin permiso.
+
+Para actualizar a mano desde una PC en Argentina:
+
+```
+gh workflow run actualizar-precios.yml
+```
