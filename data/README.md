@@ -19,7 +19,9 @@ todo el país, 782 de ellas en Rosario.
 
 Las estaciones cargan sus precios en la Secretaría por obligación de la
 Resolución 314/2016; el dataset es lo que informa cada estación, no un
-relevamiento independiente.
+relevamiento independiente. Son datos públicos de comercios: no hay datos
+personales sensibles, y el repositorio no guarda credenciales (la descarga
+y las APIs que se usan no piden clave).
 
 ### Unidad de análisis
 
@@ -131,9 +133,9 @@ User-Agent propio.
   productos; el GNC tiene bastantes menos filas que las naftas.
 - **Muchas estaciones dejaron de informar.** El 22/10/2026, de 95
   estaciones de Rosario solo 16 tenían precios de los últimos 60 días; el
-  resto seguía con precios de 2025. La recomendación solo puede elegir entre
-  las que informan, lo que deja afuera a estaciones que quizás son más
-  baratas.
+  resto seguía con precios de 2025. La recomendación usa solo precios
+  informados, salvo que en la web se activen los estimados, así que puede
+  dejar afuera estaciones que quizás son más baratas.
 - **Coordenadas que no corresponden a la localidad**: hay estaciones con
   localidad ROSARIO y coordenadas a más de 100 km, todavía dentro de Santa
   Fe. El control por provincia no las detecta.

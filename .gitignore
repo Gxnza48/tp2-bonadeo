@@ -1,6 +1,7 @@
-# Entorno virtual
+# Entorno virtual y dependencias que instala el workflow
 .venv/
 venv/
+.paquetes/
 
 # Python
 __pycache__/
